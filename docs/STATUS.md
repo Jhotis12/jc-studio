@@ -17,11 +17,11 @@ Si llegas aquí después de una compactación de contexto, el punto de entrada e
 | 2 — Política como código y gates | 7 | **completa** | 100 % |
 | 3 — Orquestador durable y TUI | 12 | **casi completa** | 93 % |
 | 4 — Memoria: grafo + RAG | 10 | **casi completa** | 90 % |
-| 5 — Revisión de código y seguridad | 6 | parcial (gates + fitness functions) | 35 % |
+| 5 — Revisión de código y seguridad | 6 | parcial (gates + fitness + secretos) | 55 % |
 | 6 — Telegram | 4 | no iniciada | 0 % |
 | 7 — Hardening y distribución | 10 | parcial | 25 % |
 
-- **v1 completo (fases 0–7): ~65 %.**
+- **v1 completo (fases 0–7): ~67 %.**
 - **MVP (fases 0–4): ~99 %.**
 
 El porcentaje mide alcance, no riesgo. La tesis arquitectónica (daemon durable, agente real,
@@ -53,8 +53,8 @@ worktree aislado, gates, DAG, integración) está validada con tests y scripts.
 
 - [x] 5.3 Fitness functions arquitectónicas: reglas `[[boundaries]]` en `.jcs/policy.toml`,
       evaluadas en el worktree y registradas como el gate `architecture`.
-- [ ] 5.2 Escaneo de secretos (el resto de la suite estática ya son gates: fmt, clippy,
-      tests, cobertura, `cargo-deny`).
+- [x] 5.2 Escaneo de secretos: prefijos conocidos + entropía estricta, con allowlist por
+      proyecto (`[secrets]`), como gate `secrets` y con el hallazgo redactado.
 - [ ] 5.1 Revisor con rúbrica y veredicto estructurado con citas.
 - [ ] 5.4 Enrutado por riesgo antes de promocionar a la base.
 

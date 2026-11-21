@@ -186,6 +186,10 @@ instructions = [".jcs/house-rules.md"]
 from = "src/domain"
 to = "src/infra"
 reason = "el dominio no depende de infraestructura"
+
+# escaneo de credenciales: activo por defecto
+[secrets]
+allow = ["tests/fixtures"]   # prefijos con credenciales falsas a propósito
 ```
 
 Un `[[boundaries]]` es un gate **ejecutable**: si un archivo bajo `from` importa un módulo

@@ -1,14 +1,15 @@
-//! Verification: executable gates plus architectural fitness functions.
+//! Verification: executable gates, architectural fitness functions and secret scanning.
 //!
-//! Both are evaluated in the task worktree and both block success. Gates run commands;
-//! boundaries check the dependency graph. A project can pass every command and still violate
-//! its architecture, which is exactly the failure a linter cannot catch.
+//! All three block success and all three run in the task worktree:
+//!   * gates run commands the project chose;
+//!   * boundaries check the dependency graph, which no linter sees;
+//!   * secrets catch credentials before they become a commit.
 
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
 use jcs_core::{GateStatus, Project};
-use jcs_gates::{GateOutcome, GateSet};
+use jcs_gates::{GateOutcome, GateSet, ScanOptions, SecretFinding};
 use jcs_memory::BoundaryViolation;
 
 use crate::state::AppState;
@@ -18,9 +19,11 @@ pub struct Evaluation {
     pub outcomes: Vec<GateOutcome>,
     pub boundary_rules: usize,
     pub boundary_violations: Vec<BoundaryViolation>,
+    pub secrets_enabled: bool,
+    pub secret_findings: Vec<SecretFinding>,
 }
 
-/// Compiles the project policy, runs its gates and checks its boundaries in `worktree`.
+/// Compiles the project policy and runs every check in `worktree`.
 pub async fn evaluate(state: &AppState, project: &Project, worktree: &Path) -> Result<Evaluation> {
     let compiled = jcs_policy::compile(
         &project.root_path,
@@ -44,11 +47,26 @@ pub async fn evaluate(state: &AppState, project: &Project, worktree: &Path) -> R
             .map_err(|error| anyhow!("cannot check architectural boundaries: {error}"))?
     };
 
+    let secrets_enabled = compiled.policy.secrets.enabled;
+    let secret_findings = if secrets_enabled {
+        jcs_gates::scan_secrets(
+            worktree,
+            &ScanOptions {
+                allow_prefixes: compiled.policy.secrets.allow.clone(),
+            },
+        )
+        .map_err(|error| anyhow!("cannot scan for secrets: {error}"))?
+    } else {
+        Vec::new()
+    };
+
     Ok(Evaluation {
         gates,
         outcomes,
         boundary_rules,
         boundary_violations,
+        secrets_enabled,
+        secret_findings,
     })
 }
 
@@ -56,7 +74,7 @@ impl Evaluation {
     pub fn passed(&self) -> bool {
         let gates_pass =
             self.gates.is_empty() || GateSet::all_required_passed(&self.outcomes, &self.gates);
-        gates_pass && self.boundary_violations.is_empty()
+        gates_pass && self.boundary_violations.is_empty() && self.secret_findings.is_empty()
     }
 
     pub fn failed_names(&self) -> Vec<String> {
@@ -70,10 +88,13 @@ impl Evaluation {
         if !self.boundary_violations.is_empty() {
             names.push("architecture".to_string());
         }
+        if !self.secret_findings.is_empty() {
+            names.push("secrets".to_string());
+        }
         names
     }
 
-    /// Bounded, per-gate output for a repair prompt or an event payload.
+    /// Bounded, per-check output for a repair prompt or an event payload.
     pub fn excerpt(&self, max: usize) -> String {
         let mut parts: Vec<String> = self
             .outcomes
@@ -84,6 +105,9 @@ impl Evaluation {
 
         if !self.boundary_violations.is_empty() {
             parts.push(format!("### architecture\n{}", self.render_violations()));
+        }
+        if !self.secret_findings.is_empty() {
+            parts.push(format!("### secrets\n{}", self.render_secrets()));
         }
 
         let joined = parts.join("\n\n");
@@ -107,7 +131,20 @@ impl Evaluation {
             .join("\n")
     }
 
-    /// Persists command gates and the architectural verdict against a run.
+    fn render_secrets(&self) -> String {
+        self.secret_findings
+            .iter()
+            .map(|finding| {
+                format!(
+                    "- {}:{}: possible {} `{}` — remove it and rotate the credential",
+                    finding.path, finding.line, finding.kind, finding.excerpt
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Persists command gates plus the built-in checks against a run.
     pub async fn record(&self, store: &jcs_store::Store, run_id: &jcs_core::RunId) -> Result<()> {
         for outcome in &self.outcomes {
             store
@@ -122,13 +159,23 @@ impl Evaluation {
                 .await?;
         }
 
+        if self.secrets_enabled {
+            let (status, excerpt) = if self.secret_findings.is_empty() {
+                (GateStatus::Passed, None)
+            } else {
+                (GateStatus::Failed, Some(self.render_secrets()))
+            };
+            store
+                .add_gate_result(run_id, "secrets", status, None, 0, excerpt.as_deref())
+                .await?;
+        }
+
         if self.boundary_rules > 0 {
             let (status, excerpt) = if self.boundary_violations.is_empty() {
                 (GateStatus::Passed, None)
             } else {
                 (GateStatus::Failed, Some(self.render_violations()))
             };
-
             store
                 .add_gate_result(run_id, "architecture", status, None, 0, excerpt.as_deref())
                 .await?;

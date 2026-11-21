@@ -95,12 +95,11 @@ Orden recomendado. Cada paso es un commit que compila y con tests.
 `architecture`. 12 tests nuevos. Pendiente menor: permitir declarar boundaries en los packs,
 no solo a nivel de proyecto.
 
-### 5.2 Escaneo de secretos
+### 5.2 Escaneo de secretos — HECHO
 
-`crates/jcs-gates`: nuevo `ParserKind`/check que escanee los archivos cambiados del worktree
-buscando patrones de alto valor (`AKIA`, `sk-`, `-----BEGIN PRIVATE KEY`, `ghp_`, cadenas de
-alta entropía) con allowlist por pack (`security.allow = ["tests/fixtures/..."]`). Registrar
-como gate `secrets` en `core-security`. Test con un fixture que contiene una clave falsa.
+`jcs-gates::secrets` (prefijos conocidos + entropía) con `ScanOptions::allow_prefixes`,
+configurado por `[secrets]` en `.jcs/policy.toml` y registrado como gate `secrets` en
+`verify.rs`. El hallazgo se redacta: nunca se imprime la credencial.
 
 ### 5.3 Revisor con rúbrica (modelo)
 

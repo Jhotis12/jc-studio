@@ -7,11 +7,13 @@
 pub mod model;
 pub mod parser;
 pub mod runner;
+pub mod secrets;
 
 pub use model::{
     Finding, GateDef, GateError, GateOutcome, GateSet, OrderedFloat, ParserKind, Severity,
 };
 pub use runner::run;
+pub use secrets::{scan as scan_secrets, ScanOptions, SecretFinding};
 
 /// Runs a set of gates sequentially, in name order.
 ///

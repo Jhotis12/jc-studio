@@ -14,6 +14,30 @@ use crate::error::{PolicyError, Result};
 
 pub const POLICY_FILE: &str = ".jcs/policy.toml";
 
+/// Controls the built-in credential scan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SecretsPolicy {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Path prefixes allowed to contain credential-like strings (fixtures, docs).
+    #[serde(default)]
+    pub allow: Vec<String>,
+}
+
+impl Default for SecretsPolicy {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allow: Vec::new(),
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectPolicy {
@@ -39,6 +63,9 @@ pub struct ProjectPolicy {
     /// Architectural fitness functions evaluated as part of verification.
     #[serde(default)]
     pub boundaries: Vec<BoundaryRule>,
+    /// Credential scanning, enabled by default.
+    #[serde(default)]
+    pub secrets: SecretsPolicy,
 }
 
 /// Reads the project policy, if the file exists.
@@ -54,6 +81,17 @@ pub fn read(root: &Path) -> Result<Option<ProjectPolicy>> {
             id: POLICY_FILE.to_string(),
             reason: error.to_string(),
         })?;
+
+    for prefix in &policy.secrets.allow {
+        if prefix.contains("..") || prefix.starts_with('/') {
+            return Err(PolicyError::InvalidPack {
+                id: POLICY_FILE.to_string(),
+                reason: format!(
+                    "secrets.allow entry {prefix:?} must be a repository-relative prefix"
+                ),
+            });
+        }
+    }
 
     for rule in &policy.boundaries {
         rule.validate().map_err(|reason| PolicyError::InvalidPack {
@@ -119,6 +157,43 @@ reason = "the domain stays pure"
 
         let error = read(directory.path()).unwrap_err();
         assert!(error.to_string().contains("repository-relative"), "{error}");
+    }
+
+    #[test]
+    fn secret_scanning_is_enabled_by_default_and_can_be_scoped() {
+        let directory = tempfile::tempdir().unwrap();
+        let policy = read(directory.path()).unwrap().unwrap_or_default();
+        assert!(policy.secrets.enabled);
+        assert!(policy.secrets.allow.is_empty());
+
+        write(
+            directory.path(),
+            &ProjectPolicy {
+                secrets: SecretsPolicy {
+                    enabled: true,
+                    allow: vec!["tests/fixtures".into()],
+                },
+                ..ProjectPolicy::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            read(directory.path()).unwrap().unwrap().secrets.allow,
+            vec!["tests/fixtures".to_string()]
+        );
+    }
+
+    #[test]
+    fn absolute_allow_prefixes_are_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(directory.path().join(".jcs")).unwrap();
+        std::fs::write(
+            directory.path().join(POLICY_FILE),
+            "[secrets]\nallow = [\"/etc\"]\n",
+        )
+        .unwrap();
+
+        assert!(read(directory.path()).is_err());
     }
 
     #[test]
