@@ -8,6 +8,7 @@
 //! Everything is project-scoped and incremental by content hash, so indexing can run after
 //! every merge without re-parsing the world.
 
+pub mod boundaries;
 pub mod chunk;
 pub mod context;
 pub mod embeddings;
@@ -18,6 +19,7 @@ pub mod model;
 pub mod search;
 pub mod util;
 
+pub use boundaries::{check as check_boundaries, Violation as BoundaryViolation};
 pub use context::{build as build_context, ContextOptions, ContextPackage};
 pub use embeddings::Embeddings;
 pub use error::{MemoryError, Result};

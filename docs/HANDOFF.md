@@ -88,20 +88,12 @@ decisiones existen precisamente porque un enfoque obvio falló.
 
 Orden recomendado. Cada paso es un commit que compila y con tests.
 
-### 5.1 Fitness functions arquitectónicas (empezar aquí)
+### 5.3 Fitness functions arquitectónicas — HECHO
 
-Lo más diferencial y no necesita modelo. Ya existe la extracción de imports en
-`jcs-memory::languages`. Falta:
-
-1. Nuevo campo en `Pack` (`crates/jcs-policy/src/model.rs`): `boundaries: Vec<BoundaryRule>`
-   con `{ from: String, to: String, reason: String }` (prefijos de ruta relativos).
-2. `crates/jcs-memory/src/boundaries.rs`: para cada archivo bajo `from`, comprobar que
-   ningún import resuelve a una ruta bajo `to`; devolver `file:line` y el import textual.
-   Resolución por sufijo del nombre de módulo; documentar que es léxica.
-3. Gate integrado en `crates/jcs-daemon/src/verify.rs` (no un subproceso): tras los gates de
-   comando, evaluar boundaries del worktree y registrar `gate_result` "boundaries".
-4. Tests: un fixture con una violación debe fallar con cita; sin violación, pasar.
-5. Pack `rust-service`: añadir una regla de ejemplo real (`src/domain` no importa `src/infra`).
+`BoundaryRule` en `jcs-core`, comprobador en `jcs-memory::boundaries`, reglas en
+`.jcs/policy.toml` (`[[boundaries]]`) y veredicto integrado en `verify.rs` como gate
+`architecture`. 12 tests nuevos. Pendiente menor: permitir declarar boundaries en los packs,
+no solo a nivel de proyecto.
 
 ### 5.2 Escaneo de secretos
 

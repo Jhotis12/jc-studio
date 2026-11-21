@@ -8,6 +8,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use jcs_core::BoundaryRule;
+
 use crate::error::{PolicyError, Result};
 
 pub const POLICY_FILE: &str = ".jcs/policy.toml";
@@ -34,6 +36,9 @@ pub struct ProjectPolicy {
     /// keeps them instead of replacing them.
     #[serde(default)]
     pub instructions: Vec<String>,
+    /// Architectural fitness functions evaluated as part of verification.
+    #[serde(default)]
+    pub boundaries: Vec<BoundaryRule>,
 }
 
 /// Reads the project policy, if the file exists.
@@ -49,6 +54,14 @@ pub fn read(root: &Path) -> Result<Option<ProjectPolicy>> {
             id: POLICY_FILE.to_string(),
             reason: error.to_string(),
         })?;
+
+    for rule in &policy.boundaries {
+        rule.validate().map_err(|reason| PolicyError::InvalidPack {
+            id: POLICY_FILE.to_string(),
+            reason,
+        })?;
+    }
+
     Ok(Some(policy))
 }
 
@@ -70,6 +83,42 @@ mod tests {
     fn a_missing_file_is_not_an_error() {
         let directory = tempfile::tempdir().unwrap();
         assert!(read(directory.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn boundary_rules_are_parsed_and_validated() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(directory.path().join(".jcs")).unwrap();
+        std::fs::write(
+            directory.path().join(POLICY_FILE),
+            r#"
+packs = ["core-git"]
+
+[[boundaries]]
+from = "src/domain"
+to = "src/infra"
+reason = "the domain stays pure"
+"#,
+        )
+        .unwrap();
+
+        let policy = read(directory.path()).unwrap().unwrap();
+        assert_eq!(policy.boundaries.len(), 1);
+        assert_eq!(policy.boundaries[0].from, "src/domain");
+    }
+
+    #[test]
+    fn an_invalid_boundary_is_rejected_with_a_reason() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(directory.path().join(".jcs")).unwrap();
+        std::fs::write(
+            directory.path().join(POLICY_FILE),
+            "[[boundaries]]\nfrom = \"/etc\"\nto = \"src\"\n",
+        )
+        .unwrap();
+
+        let error = read(directory.path()).unwrap_err();
+        assert!(error.to_string().contains("repository-relative"), "{error}");
     }
 
     #[test]

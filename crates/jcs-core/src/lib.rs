@@ -4,6 +4,7 @@
 //! explicitly-passed timestamps. Everything here is deterministic and testable in
 //! isolation. Persistence lives in `jcs-store`; orchestration in `jcs-daemon`.
 
+pub mod boundaries;
 pub mod error;
 pub mod event;
 pub mod ids;
@@ -11,6 +12,7 @@ pub mod model;
 pub mod plan;
 pub mod status;
 
+pub use boundaries::BoundaryRule;
 pub use error::CoreError;
 pub use event::{Event, EventKind, NewEvent, EVENT_SCHEMA_VERSION};
 pub use ids::{EventId, GoalId, ProjectId, RunId, TaskId};

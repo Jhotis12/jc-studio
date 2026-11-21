@@ -180,7 +180,17 @@ disabled_gates = ["coverage"]
 
 # instrucciones propias, renderizadas después de los packs
 instructions = [".jcs/house-rules.md"]
+
+# fitness functions: se evalúan como un gate más
+[[boundaries]]
+from = "src/domain"
+to = "src/infra"
+reason = "el dominio no depende de infraestructura"
 ```
+
+Un `[[boundaries]]` es un gate **ejecutable**: si un archivo bajo `from` importa un módulo
+bajo `to`, la verificación falla con `archivo:línea` y el bucle de reparación recibe la
+violación. No depende de un modelo ni de un linter.
 
 `jcs policy render` genera `AGENTS.md` y `.jcs/gates.toml`. Los archivos generados llevan
 una marca; un `AGENTS.md` escrito a mano **no se sobrescribe** sin `--force`, y al forzarlo

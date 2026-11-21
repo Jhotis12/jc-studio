@@ -18,6 +18,61 @@ pub fn extract(language: Language, path: &str, source: &str) -> Result<Extractio
     }
 }
 
+/// Import statements with their line numbers, for boundary checks.
+pub fn import_sites(language: Language, path: &str, source: &str) -> Result<Vec<(u32, String)>> {
+    if language == Language::Sql {
+        return Ok(Vec::new());
+    }
+
+    let mut parser = Parser::new();
+    let grammar = match language {
+        Language::Rust => tree_sitter_rust::LANGUAGE.into(),
+        Language::JavaScript => tree_sitter_javascript::LANGUAGE.into(),
+        Language::TypeScript => {
+            if path.ends_with(".tsx") || path.ends_with(".jsx") {
+                tree_sitter_typescript::LANGUAGE_TSX.into()
+            } else {
+                tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
+            }
+        }
+        Language::Python => tree_sitter_python::LANGUAGE.into(),
+        Language::Sql => unreachable!(),
+    };
+
+    parser
+        .set_language(&grammar)
+        .map_err(|error| MemoryError::Parse {
+            path: path.to_string(),
+            reason: format!("cannot load the grammar: {error}"),
+        })?;
+
+    let tree = parser
+        .parse(source, None)
+        .ok_or_else(|| MemoryError::Parse {
+            path: path.to_string(),
+            reason: "the parser produced no tree".to_string(),
+        })?;
+
+    let mut sites = Vec::new();
+    collect_imports(tree.root_node(), source, &mut sites);
+    Ok(sites)
+}
+
+fn collect_imports(node: Node<'_>, source: &str, out: &mut Vec<(u32, String)>) {
+    if matches!(
+        node.kind(),
+        "use_declaration" | "import_statement" | "import_from_statement"
+    ) {
+        out.push((node.start_position().row as u32 + 1, text_of(node, source)));
+        return;
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_imports(child, source, out);
+    }
+}
+
 fn text_of(node: Node<'_>, source: &str) -> String {
     node.utf8_text(source.as_bytes())
         .unwrap_or_default()
