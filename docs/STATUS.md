@@ -19,7 +19,7 @@ Si llegas aquí después de una compactación de contexto, el punto de entrada e
 | 4 — Memoria: grafo + RAG | 10 | **casi completa** | 90 % |
 | 5 — Revisión de código y seguridad | 6 | **completa** | 100 % |
 | 6 — Telegram | 4 | operativa | 85 % |
-| 7 — Hardening y distribución | 10 | parcial (falta empaquetado) | 65 % |
+| 7 — Hardening y distribución | 10 | parcial (falta empaquetado) | 70 % |
 
 - **v1 completo (fases 0–7): ~90 %.**
 - **MVP (fases 0–4): ~99 %.**

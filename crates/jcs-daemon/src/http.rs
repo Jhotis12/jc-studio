@@ -856,6 +856,22 @@ async fn metrics(State(state): State<AppState>) -> ApiResult<axum::response::Res
         "# HELP jcs_tokens_total Tokens by direction.\n# TYPE jcs_tokens_total counter\njcs_tokens_total{{direction=\"in\"}} {tokens_in}\njcs_tokens_total{{direction=\"out\"}} {tokens_out}\n"
     ));
 
+    // Per-project spend, so a dashboard can attribute cost instead of only seeing a total.
+    body.push_str(
+        "# HELP jcs_project_cost_usd_total Cumulative spend per project.\n# TYPE jcs_project_cost_usd_total counter\n",
+    );
+    for project in &projects {
+        let spend = state
+            .store
+            .total_cost_usd(Some(&project.id))
+            .await
+            .unwrap_or(0.0);
+        body.push_str(&format!(
+            "jcs_project_cost_usd_total{{project=\"{}\"}} {spend:.6}\n",
+            project.name.replace('"', "")
+        ));
+    }
+
     Ok(([(header::CONTENT_TYPE, "text/plain; version=0.0.4")], body).into_response())
 }
 
