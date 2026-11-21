@@ -264,6 +264,10 @@ pub async fn promote(
     jcs_store::append_event(&state.store, event).await?;
 
     cleanup(state, project, integration);
+
+    // The base branch moved: re-index in the background so the next task sees it.
+    crate::memory_service::spawn_index(state.clone(), project.clone());
+
     Ok(())
 }
 

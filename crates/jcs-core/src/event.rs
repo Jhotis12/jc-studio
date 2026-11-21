@@ -88,6 +88,9 @@ event_kinds! {
     // policy
     PolicyRendered => "policy_rendered",
 
+    // memory
+    MemoryIndexed => "memory_indexed",
+
     // Something the operator should see. Not a crash log.
     Error => "error",
 }

@@ -53,6 +53,9 @@ pub fn router(state: AppState) -> Router {
         .route("/policy/render", post(render_policy))
         .route("/gates", get(gates))
         .route("/gates/run", post(run_gates))
+        .route("/memory/index", post(memory_index))
+        .route("/memory/search", get(memory_search))
+        .route("/memory/stats", get(memory_stats))
         .route("/goals/{id}", get(goal_detail))
         .route("/goals/{id}/resume", post(resume_goal))
         .layer(middleware::from_fn(protocol_guard))
@@ -234,6 +237,10 @@ async fn add_project(
     };
 
     state.store.insert_project(&project).await?;
+
+    // Index in the background: adding a project should not wait for a disk sweep.
+    crate::memory_service::spawn_index(state.clone(), project.clone());
+
     Ok(Json(ProjectResponse {
         project: project_view(&project),
     }))
@@ -796,6 +803,112 @@ async fn resume_goal(
 }
 
 #[derive(Debug, Deserialize)]
+struct MemorySearchQuery {
+    project: String,
+    q: String,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+async fn memory_index(
+    State(state): State<AppState>,
+    Json(request): Json<jcs_proto::MemoryIndexRequest>,
+) -> ApiResult<Json<jcs_proto::MemoryIndexResponse>> {
+    let project = resolve_project(&state, &request.project).await?;
+
+    let report = crate::memory_service::index_project(&state, &project, request.force)
+        .await
+        .ok_or_else(|| {
+            ApiError::conflict(
+                "index_in_progress",
+                format!("{} is already being indexed", project.name),
+            )
+        })?;
+
+    let event = NewEvent::new(EventKind::MemoryIndexed)
+        .project(&project.id)
+        .payload(json!({
+            "files_indexed": report.files_indexed,
+            "files_skipped": report.files_skipped,
+            "files_removed": report.files_removed,
+            "symbols": report.symbols,
+            "chunks": report.chunks,
+            "embeddings": report.embeddings,
+            "duration_ms": report.duration_ms,
+        }));
+    jcs_store::append_event(&state.store, event).await?;
+
+    Ok(Json(jcs_proto::MemoryIndexResponse {
+        report: jcs_proto::MemoryIndexReportView {
+            files_seen: report.files_seen,
+            files_indexed: report.files_indexed,
+            files_skipped: report.files_skipped,
+            files_removed: report.files_removed,
+            symbols: report.symbols,
+            chunks: report.chunks,
+            embeddings: report.embeddings,
+            duration_ms: report.duration_ms,
+            errors: report.errors,
+        },
+    }))
+}
+
+async fn memory_search(
+    State(state): State<AppState>,
+    Query(query): Query<MemorySearchQuery>,
+) -> ApiResult<Json<jcs_proto::MemorySearchResponse>> {
+    let project = resolve_project(&state, &query.project).await?;
+
+    let hits = jcs_memory::search(
+        &state.store,
+        state.embeddings.as_deref(),
+        &project.id,
+        &query.q,
+        query.limit.unwrap_or(10),
+    )
+    .await
+    .map_err(|error| ApiError::internal(error.to_string()))?;
+
+    Ok(Json(jcs_proto::MemorySearchResponse {
+        query: query.q,
+        hits: hits
+            .iter()
+            .map(|hit| jcs_proto::MemoryHitView {
+                path: hit.path.clone(),
+                start_line: hit.start_line,
+                end_line: hit.end_line,
+                score: hit.score,
+                source: hit.source.as_str().to_string(),
+                citation: hit.citation(),
+                snippet: hit.snippet.clone(),
+            })
+            .collect(),
+    }))
+}
+
+async fn memory_stats(
+    State(state): State<AppState>,
+    Query(query): Query<ProjectQuery>,
+) -> ApiResult<Json<jcs_proto::MemoryStatsView>> {
+    let project = resolve_project(&state, &query.project).await?;
+
+    let stats = jcs_memory::stats(&state.store, &project.id)
+        .await
+        .map_err(|error| ApiError::internal(error.to_string()))?;
+
+    Ok(Json(jcs_proto::MemoryStatsView {
+        project: project.name.clone(),
+        files: stats.files,
+        symbols: stats.symbols,
+        chunks: stats.chunks,
+        embedded_chunks: stats.embedded_chunks,
+        edges: stats.edges,
+        last_indexed_at: stats.last_indexed_at,
+        semantic_enabled: state.embeddings.is_some(),
+    }))
+}
+
+#[derive(Debug, Deserialize)]
 struct EventsQuery {
     #[serde(default)]
     since: i64,
@@ -956,11 +1069,14 @@ mod tests {
             planning_agent: None,
             lease_ttl_secs: 90,
             heartbeat_secs: 20,
+            context_tokens: 0,
+            memory_sweep_secs: 0,
         });
         AppState::new(
             store,
             config,
             Arc::new(jcs_policy::loader::builtin_packs().unwrap()),
+            None,
         )
     }
 

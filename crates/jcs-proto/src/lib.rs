@@ -354,6 +354,61 @@ pub struct GateRunResponse {
     pub outcomes: Vec<GateOutcomeView>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryIndexRequest {
+    pub project: String,
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryIndexReportView {
+    pub files_seen: usize,
+    pub files_indexed: usize,
+    pub files_skipped: usize,
+    pub files_removed: usize,
+    pub symbols: usize,
+    pub chunks: usize,
+    pub embeddings: usize,
+    pub duration_ms: i64,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryIndexResponse {
+    pub report: MemoryIndexReportView,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryHitView {
+    pub path: String,
+    pub start_line: u32,
+    pub end_line: u32,
+    pub score: f32,
+    pub source: String,
+    pub citation: String,
+    pub snippet: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemorySearchResponse {
+    pub query: String,
+    pub hits: Vec<MemoryHitView>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryStatsView {
+    pub project: String,
+    pub files: i64,
+    pub symbols: i64,
+    pub chunks: i64,
+    pub embedded_chunks: i64,
+    pub edges: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_indexed_at: Option<String>,
+    pub semantic_enabled: bool,
+}
+
 /// An event as it appears on the client stream.
 ///
 /// This is the domain event: one representation everywhere, so a client and the

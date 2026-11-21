@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use jcs_agent::OpenCodeClient;
+use jcs_memory::Embeddings;
 use jcs_policy::model::Pack;
 use jcs_store::Store;
 use tokio::sync::{OnceCell, Semaphore};
@@ -52,6 +53,10 @@ pub struct AppState {
     pub agent: AgentHandle,
     /// Packs available in this daemon: built-ins plus `JCS_PACKS_DIR`.
     pub packs: Arc<BTreeMap<String, Pack>>,
+    /// Semantic search provider, when one is configured.
+    pub embeddings: Option<Arc<Embeddings>>,
+    /// Prevents two indexing passes over the same project at once.
+    pub index_guard: crate::memory_service::IndexGuard,
     pub started_at: Instant,
     pub started_at_ms: i64,
     /// Bounds how many tasks execute at once.
@@ -59,13 +64,20 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(store: Arc<Store>, config: Arc<Config>, packs: Arc<BTreeMap<String, Pack>>) -> Self {
+    pub fn new(
+        store: Arc<Store>,
+        config: Arc<Config>,
+        packs: Arc<BTreeMap<String, Pack>>,
+        embeddings: Option<Arc<Embeddings>>,
+    ) -> Self {
         let permits = Arc::new(Semaphore::new(config.max_concurrent));
         Self {
             store,
             config,
             agent: AgentHandle::default(),
             packs,
+            embeddings,
+            index_guard: crate::memory_service::IndexGuard::default(),
             started_at: Instant::now(),
             started_at_ms: jiff::Timestamp::now().as_millisecond(),
             permits,

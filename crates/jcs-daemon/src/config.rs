@@ -33,6 +33,10 @@ pub struct Config {
     pub lease_ttl_secs: u64,
     /// How often a running task renews its lease.
     pub heartbeat_secs: u64,
+    /// Token budget for the code context injected into a task prompt. 0 disables it.
+    pub context_tokens: usize,
+    /// Background memory sweep interval. 0 disables the sweep.
+    pub memory_sweep_secs: u64,
 }
 
 impl Config {
@@ -64,6 +68,8 @@ impl Config {
             planning_agent: env_non_empty("JCS_PLANNING_AGENT"),
             lease_ttl_secs: env_parse("JCS_LEASE_TTL_SECS").unwrap_or(90).max(10),
             heartbeat_secs: env_parse("JCS_HEARTBEAT_SECS").unwrap_or(20).max(2),
+            context_tokens: env_parse("JCS_CONTEXT_TOKENS").unwrap_or(1_500),
+            memory_sweep_secs: env_parse("JCS_MEMORY_SWEEP_SECS").unwrap_or(300),
         }
     }
 }

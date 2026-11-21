@@ -184,7 +184,9 @@ async fn run_task(state: &AppState, dispatch: &TaskDispatch, guard: &LeaseGuard)
         .link_session(&task.id, &project.id, &session.id, &worktree)
         .await?;
 
-    let prompt = build_prompt(&goal, &task, &worktree, &branch, &project.base_branch);
+    let mut prompt = build_prompt(&goal, &task, &worktree, &branch, &project.base_branch);
+    prompt = with_memory_context(state, &project, &goal, &task, prompt).await;
+
     agent
         .prompt(&session.id, &prompt, "queue")
         .await
@@ -967,6 +969,84 @@ async fn block_for_input(
 
     let _ = dispatch;
     Ok(())
+}
+
+/// Appends cited code context to the task prompt.
+///
+/// This is the payoff of the memory index: the agent starts with the code that matters and
+/// a citation for each snippet, instead of exploring a repository it cannot see. It is
+/// skipped when the index is empty or the budget is zero, so a project without memory
+/// behaves exactly as before.
+async fn with_memory_context(
+    state: &AppState,
+    project: &Project,
+    goal: &Goal,
+    task: &Task,
+    mut prompt: String,
+) -> String {
+    if state.config.context_tokens == 0 {
+        return prompt;
+    }
+
+    let options = jcs_memory::ContextOptions {
+        query: format!("{}\n{}", goal.prompt, task.title),
+        budget_tokens: state.config.context_tokens,
+        limit: 8,
+    };
+
+    let extra = policy_sections(state, project);
+
+    match jcs_memory::build_context(
+        &state.store,
+        state.embeddings.as_deref(),
+        &project.id,
+        options,
+        &extra,
+    )
+    .await
+    {
+        Ok(package) if !package.is_empty() => {
+            tracing::info!(
+                task = %task.id,
+                hits = package.hits,
+                tokens = package.used_tokens,
+                "injecting code context"
+            );
+            prompt.push_str("\n\n");
+            prompt.push_str(&package.text);
+            prompt.push('\n');
+            prompt
+        }
+        Ok(_) => prompt,
+        Err(error) => {
+            tracing::debug!(error = %format!("{error:#}"), "no code context available");
+            prompt
+        }
+    }
+}
+
+fn policy_sections(state: &AppState, project: &Project) -> Vec<(String, String)> {
+    let Ok(compiled) = jcs_policy::compile(
+        &project.root_path,
+        &state.packs,
+        &state.config.default_packs,
+    ) else {
+        return Vec::new();
+    };
+
+    let rules = compiled
+        .composition
+        .rules
+        .iter()
+        .map(|(key, entry)| format!("- {key}: {}", entry.value))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if rules.is_empty() {
+        Vec::new()
+    } else {
+        vec![("Project rules".to_string(), rules)]
+    }
 }
 
 fn build_prompt(

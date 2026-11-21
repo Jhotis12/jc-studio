@@ -7,6 +7,7 @@ mod config;
 mod error;
 mod executor;
 mod http;
+mod memory_service;
 mod merge;
 mod planner;
 mod scheduler;
@@ -99,7 +100,14 @@ async fn main() -> Result<()> {
     let packs = jcs_policy::loader::load_all(config.packs_dir.as_deref())
         .context("cannot load policy packs")?;
 
-    let state = AppState::new(store, Arc::new(config.clone()), Arc::new(packs));
+    let embeddings = jcs_memory::Embeddings::from_env().map(Arc::new);
+    if embeddings.is_none() {
+        tracing::info!(
+            "semantic search disabled; set JCS_EMBEDDING_URL and JCS_EMBEDDING_MODEL to enable it"
+        );
+    }
+
+    let state = AppState::new(store, Arc::new(config.clone()), Arc::new(packs), embeddings);
 
     // Crash recovery: a `started` run means the previous process died mid-flight.
     // Recovery must never prevent the daemon from booting: refusing to start would leave
@@ -170,10 +178,14 @@ async fn main() -> Result<()> {
     // The scheduler is the only component that dispatches work. It resumes whatever the
     // previous process left pending, using durable state only.
     let scheduler = scheduler::spawn(state.clone());
+    let sweeper = memory_service::spawn_sweeper(state.clone());
 
     let result = uds::serve(state.clone(), config.socket_path.clone(), shutdown_signal()).await;
 
     scheduler.abort();
+    if let Some(sweeper) = sweeper {
+        sweeper.abort();
+    }
 
     http::record_lifecycle(
         &state,
