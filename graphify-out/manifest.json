@@ -144,9 +144,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-daemon/src/main.rs": {
-    "mtime": 1795290255.6420596,
-    "seen": 1795291316.4612536,
-    "ast_hash": "6fc5b744530b09a5557be0c83e18725c",
+    "mtime": 1795292075.5588474,
+    "seen": 1795292139.4299934,
+    "ast_hash": "c73fbb26403cba4117f5e9eb05c7ecd1",
     "semantic_hash": ""
   },
   "crates/jcs-daemon/src/state.rs": {
