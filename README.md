@@ -18,7 +18,7 @@ Telegram      ─┘                            │
 
 ## Estado
 
-**Fases 0, 1 y 2: completas.**
+**Fases 0, 1, 2 y 3: completas.**
 
 Funciona de punta a punta: objetivo → worktree aislado → sesión de agente real → gates
 **definidos por la política del proyecto** → bucle de reparación acotado → commit
@@ -27,8 +27,12 @@ convencional, con recuperación tras crash y un historial de eventos reanudable.
 La política es código versionado: packs en TOML, instrucciones en Markdown, gates
 ejecutables, lock con hashes y `render --check` como gate de CI.
 
-Lo que **no** hay todavía (fases 3–7): descomposición de objetivos en DAG, TUI ratatui,
-grafo de código/RAG, revisor adversarial, Telegram, merge queue.
+El orquestador descompone el objetivo en un DAG, ejecuta tareas en paralelo con leases y
+claims de rutas, integra cada commit en una rama de objetivo y promociona a la base cuando
+todo está verde. La TUI (`jcs tui`) muestra el tablero y el stream en vivo.
+
+Lo que **no** hay todavía (fases 4–7): grafo de código/RAG, revisor adversarial, Telegram,
+hardening de 72 h y empaquetado.
 
 Riesgos aceptados y decisiones diferidas: [`docs/PENDING.md`](docs/PENDING.md).
 
@@ -97,6 +101,15 @@ jcs policy render <proyecto> --check # falla si hay drift (para CI)
 jcs gates list <proyecto>
 jcs gates run <proyecto> --gate clippy
 
+# TUI
+jcs tui
+
+# objetivos: planificación y seguimiento
+jcs ask -p servicio "objetivo"        # planifica un DAG y lo sigue
+jcs ask -p servicio "objetivo" --no-plan   # una sola tarea
+jcs goal <goal-id>                    # tablero del objetivo
+jcs resume <goal-id>                  # reactiva un objetivo bloqueado
+
 # estado, historial y detalle
 jcs status
 jcs runs <run-id>
@@ -106,6 +119,24 @@ jcs logs --follow
 # abortar
 jcs abort <run-id>
 ```
+
+### Orquestación
+
+Un objetivo se descompone en tareas con dependencias y claims de rutas. Cada tarea corre en
+su propio worktree, cortado de la **rama de integración del objetivo**, y al terminar se
+integra ahí mismo (rebase + gates + fast-forward). Los dependientes solo arrancan cuando su
+predecesor está **integrado**, no solo terminado.
+
+```bash
+# auto-merge: promociona la rama del objetivo a la base al terminar
+jcs project settings servicio --auto-merge true
+
+# presupuesto diario por proyecto; al agotarse el objetivo se bloquea, no se ignora
+jcs project settings servicio --budget-usd 10 --budget-tokens 5000000
+```
+
+`jcs project settings` sin flags muestra la configuración actual. Un objetivo bloqueado se
+reactiva con `jcs resume`, y las ramas de tarea se limpian al integrarse.
 
 ### Política del proyecto
 
@@ -170,6 +201,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 just e2e        # end-to-end real (modelo gratuito, requiere opencode servicio activo)
 just e2e-policy # gate que exige un token: prueba que el bucle de reparación funciona
+just e2e-plan   # descomposición en DAG y ejecución de tareas
+just e2e-merge  # DAG + integración + promoción a la rama base
 just chaos      # kill -9 a mitad de run y recuperación
 just audit      # licencias y avisos de dependencias
 ```
