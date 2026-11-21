@@ -107,8 +107,9 @@ Orden recomendado. Cada paso es un commit que compila y con tests:
 2. **Secretos en el llavero.** `secret-service` (o archivo 0600 si no hay escritorio) para
    token de Telegram y clave de embeddings; la API solo devuelve «configurado» y los últimos
    cuatro caracteres. Nunca a `settings`.
-3. **Catálogos en ajustes.** Modelos (con coste y contexto), agentes y packs desde el daemon;
-   selectores en vez de texto libre. `GET /catalog/*` o reutilizar el backend con una capa.
+3. **Catálogos en ajustes.** Modelos ya está hecho (`GET /catalog/models`, selector con
+   precio en el compositor y en ajustes). Faltan agentes y packs: `GET /catalog/agents` y
+   `/catalog/packs`, con selectores en vez de texto libre.
 4. **Distribución.** `.deb`/AppImage, instancia única por socket, y artefactos macOS/aarch64.
 5. **Operador:** prueba real de Telegram (token/chat id) y soak de 72 h
    (`SOAK_BUDGET_TOKENS=<alto> ./scripts/soak.sh`).

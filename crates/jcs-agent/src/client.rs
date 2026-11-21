@@ -25,6 +25,16 @@ pub struct ModelRef {
     pub variant: Option<String>,
 }
 
+/// A model as the backend advertises it: reference, human name and price per million tokens.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ModelInfo {
+    /// `provider/model`, the form accepted by `AskRequest` and the planner.
+    pub reference: String,
+    pub name: String,
+    pub cost_input: f64,
+    pub cost_output: f64,
+}
+
 impl ModelRef {
     /// Parses `provider/model`, the form used on the command line.
     pub fn parse(reference: &str) -> Result<Self> {
@@ -229,6 +239,54 @@ impl OpenCodeClient {
             )
             .await?;
         Ok(into_list(value))
+    }
+
+    /// Catalog with prices, used by the desktop selectors.
+    pub async fn model_catalog(&self) -> Result<Vec<ModelInfo>> {
+        let value = self
+            .request(
+                reqwest::Method::GET,
+                "/api/model",
+                None,
+                Some(REQUEST_TIMEOUT),
+            )
+            .await?;
+        let mut models = Vec::new();
+        for item in into_list(value) {
+            let id = item.get("id").and_then(Value::as_str).unwrap_or_default();
+            let provider = item
+                .get("providerID")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if id.is_empty() || provider.is_empty() {
+                continue;
+            }
+            let cost = item
+                .get("cost")
+                .and_then(Value::as_array)
+                .and_then(|tiers| tiers.first());
+            let price = |key: &str| {
+                cost.and_then(|tier| tier.get(key))
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0)
+            };
+            models.push(ModelInfo {
+                reference: format!("{provider}/{id}"),
+                name: item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or(id)
+                    .to_string(),
+                cost_input: price("input"),
+                cost_output: price("output"),
+            });
+        }
+        models.sort_by(|a, b| {
+            a.cost_input
+                .total_cmp(&b.cost_input)
+                .then_with(|| a.reference.cmp(&b.reference))
+        });
+        Ok(models)
     }
 
     /// Models available to this instance.

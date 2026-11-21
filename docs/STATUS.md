@@ -85,8 +85,9 @@ El razonamiento y las alternativas están en la [ADR 0010](adr/0010-desktop-app-
 - [x] 8.4 Ajustes por interfaz: formulario global (modelo, agente, revisión, riesgo, timeout,
       contexto, reparación, concurrencia) y ajustes por proyecto (auto-merge y presupuestos).
       Validación en el daemon, persistencia en `settings`, evento `settings_changed` y aviso
-      de «requiere reiniciar». **Pendiente:** secretos en el llavero, catálogos de
-      modelos/agentes/packs y edición estructurada de política.
+      de «requiere reiniciar». El modelo se elige de un catálogo con precios (44 modelos en
+      este backend). **Pendiente:** secretos en el llavero, catálogos de agentes/packs y
+      edición estructurada de política.
 - [x] 8.5 Empaquetado de escritorio Linux: `jc-studio` en el tarball, `.desktop`, icono,
       instalador que registra la app en el menú. Verificado en un prefijo limpio.
       **Pendiente:** `.deb`/AppImage, instancia única y actualizaciones.

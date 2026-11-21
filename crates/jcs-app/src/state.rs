@@ -8,8 +8,8 @@ use std::collections::VecDeque;
 use jcs_core::Event;
 use jcs_proto::{
     GateRunResponse, GoalActionResponse, HealthResponse, MemoryIndexResponse, MemorySearchResponse,
-    MemoryStatsView, PolicyView, ProjectView, RenderPolicyResponse, RunDetailResponse,
-    SettingsView, StatusResponse, Totals,
+    MemoryStatsView, ModelCatalogEntry, PolicyView, ProjectView, RenderPolicyResponse,
+    RunDetailResponse, SettingsView, StatusResponse, Totals,
 };
 
 /// How the window sees the daemon right now.
@@ -32,6 +32,8 @@ pub struct Notice {
 #[derive(Debug, Clone)]
 pub struct ActivityLine {
     pub seq: i64,
+    /// Goal the event belongs to, when it has one. Lets the interface show one objective.
+    pub goal_id: Option<String>,
     pub time: String,
     pub kind: String,
     pub detail: String,
@@ -62,6 +64,7 @@ pub struct State {
     pub memory_search: Option<MemorySearchResponse>,
     pub run_detail: Option<RunDetailResponse>,
     pub settings: Option<SettingsView>,
+    pub models: Vec<ModelCatalogEntry>,
     pub notice: Option<Notice>,
 }
 
@@ -109,6 +112,7 @@ impl State {
             Update::RunDetail(detail) => self.run_detail = Some(*detail),
             Update::GoalAction(action) => self.apply_goal_action(action),
             Update::Settings(settings) => self.settings = Some(settings),
+            Update::Models(models) => self.models = models,
             Update::Project(project) => {
                 self.selected_project = Some(project.id.clone());
                 if let Some(existing) = self.projects.iter_mut().find(|p| p.id == project.id) {
@@ -164,6 +168,7 @@ impl State {
         let detail = summarize(&event);
         self.events.push_back(ActivityLine {
             seq: event.seq,
+            goal_id: event.goal_id.as_ref().map(|id| id.to_string()),
             time: event.ts.strftime("%H:%M:%S").to_string(),
             kind: event.kind.as_str().to_string(),
             detail,
@@ -371,6 +376,16 @@ mod tests {
         state.push_event(event(7, EventKind::DaemonStarted, serde_json::json!({})));
         state.push_event(event(7, EventKind::DaemonStarted, serde_json::json!({})));
         assert_eq!(state.events.len(), 1);
+    }
+
+    #[test]
+    fn events_keep_the_goal_they_belong_to() {
+        let mut event = event(3, EventKind::RunStarted, serde_json::json!({}));
+        event.goal_id = Some(jcs_core::GoalId::new());
+        let expected = event.goal_id.as_ref().unwrap().to_string();
+        let mut state = State::default();
+        state.push_event(event);
+        assert_eq!(state.events[0].goal_id.as_deref(), Some(expected.as_str()));
     }
 
     #[test]

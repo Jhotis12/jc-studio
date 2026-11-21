@@ -20,11 +20,11 @@ use jcs_core::{
 };
 use jcs_proto::{
     AddProjectRequest, AskRequest, AskResponse, ErrorBody, GateOutcomeView, GateRunRequest,
-    GateRunResponse, GateView, GoalView, HealthResponse, PackCatalogEntry, PolicyGateView,
-    PolicyPackView, PolicyRuleView, PolicyView, ProjectListResponse, ProjectResponse, ProjectView,
-    RenderPolicyRequest, RenderPolicyResponse, RenderedFileView, RunDetailResponse, RunView,
-    SettingsPatch, SettingsView, StatusResponse, TaskView, Totals, PROTOCOL_HEADER,
-    PROTOCOL_VERSION,
+    GateRunResponse, GateView, GoalView, HealthResponse, ModelCatalogEntry, PackCatalogEntry,
+    PolicyGateView, PolicyPackView, PolicyRuleView, PolicyView, ProjectListResponse,
+    ProjectResponse, ProjectView, RenderPolicyRequest, RenderPolicyResponse, RenderedFileView,
+    RunDetailResponse, RunView, SettingsPatch, SettingsView, StatusResponse, TaskView, Totals,
+    PROTOCOL_HEADER, PROTOCOL_VERSION,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -56,6 +56,7 @@ pub fn router(state: AppState) -> Router {
         .route("/gates/run", post(run_gates))
         .route("/metrics", get(metrics))
         .route("/settings", get(settings).put(update_settings))
+        .route("/catalog/models", get(catalog_models))
         .route("/memory/index", post(memory_index))
         .route("/memory/search", get(memory_search))
         .route("/memory/stats", get(memory_stats))
@@ -805,6 +806,24 @@ async fn resume_goal(
         goal_id: goal_id.to_string(),
         status: GoalStatus::Running.as_str().to_string(),
     }))
+}
+
+/// Models available to the agent backend. The interface uses this instead of asking the
+/// operator to remember `provider/model` strings and prices.
+async fn catalog_models(State(state): State<AppState>) -> ApiResult<Json<Vec<ModelCatalogEntry>>> {
+    let agent = state.agent.get().await?;
+    let models = agent.model_catalog().await?;
+    Ok(Json(
+        models
+            .into_iter()
+            .map(|model| ModelCatalogEntry {
+                reference: model.reference,
+                name: model.name,
+                cost_input: model.cost_input,
+                cost_output: model.cost_output,
+            })
+            .collect(),
+    ))
 }
 
 async fn settings(State(state): State<AppState>) -> Json<SettingsView> {

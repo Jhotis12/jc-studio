@@ -84,6 +84,10 @@ impl Client {
         self.get(&format!("/runs/{id}")).await
     }
 
+    pub async fn models(&self) -> Result<Vec<jcs_proto::ModelCatalogEntry>> {
+        self.get("/catalog/models").await
+    }
+
     pub async fn settings(&self) -> Result<jcs_proto::SettingsView> {
         self.get("/settings").await
     }

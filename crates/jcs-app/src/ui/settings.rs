@@ -187,16 +187,20 @@ fn daemon_settings(ui: &mut egui::Ui, app: &mut Studio) {
     );
     ui.add_space(4.0);
 
+    let models = app.state.models.clone();
     egui::Grid::new("runtime-settings")
         .num_columns(2)
         .spacing([12.0, 6.0])
         .show(ui, |ui| {
             ui.label("Modelo por defecto");
-            ui.add(
-                egui::TextEdit::singleline(&mut app.global_form.default_model)
-                    .hint_text("provider/modelo")
-                    .desired_width(280.0),
-            );
+            ui.horizontal(|ui| {
+                crate::ui::model_selector(
+                    ui,
+                    "default-model",
+                    &mut app.global_form.default_model,
+                    &models,
+                );
+            });
             ui.end_row();
 
             ui.label("Agente por defecto");
@@ -208,11 +212,14 @@ fn daemon_settings(ui: &mut egui::Ui, app: &mut Studio) {
             ui.end_row();
 
             ui.label("Modelo de planificación");
-            ui.add(
-                egui::TextEdit::singleline(&mut app.global_form.planning_model)
-                    .hint_text("hereda el modelo por defecto")
-                    .desired_width(280.0),
-            );
+            ui.horizontal(|ui| {
+                crate::ui::model_selector(
+                    ui,
+                    "planning-model",
+                    &mut app.global_form.planning_model,
+                    &models,
+                );
+            });
             ui.end_row();
 
             ui.label("Agente de planificación");
@@ -223,11 +230,14 @@ fn daemon_settings(ui: &mut egui::Ui, app: &mut Studio) {
             ui.end_row();
 
             ui.label("Modelo de revisión");
-            ui.add(
-                egui::TextEdit::singleline(&mut app.global_form.review_model)
-                    .hint_text("hereda el modelo por defecto")
-                    .desired_width(280.0),
-            );
+            ui.horizontal(|ui| {
+                crate::ui::model_selector(
+                    ui,
+                    "review-model",
+                    &mut app.global_form.review_model,
+                    &models,
+                );
+            });
             ui.end_row();
 
             ui.label("Revisión con rúbrica");

@@ -78,8 +78,13 @@ fn top_bar(context: &egui::Context, app: &mut Studio) {
                         app.daemon.send(crate::daemon::Command::Refresh);
                     }
                     ui.separator();
-                    ui.label(RichText::new(format!("${:.4}", app.state.totals.cost_usd)).strong())
-                        .on_hover_text("coste acumulado de todos los proyectos");
+                    ui.add_enabled(
+                        app.state.is_connected(),
+                        egui::Label::new(
+                            RichText::new(format!("${:.4}", app.state.totals.cost_usd)).strong(),
+                        ),
+                    )
+                    .on_hover_text("coste acumulado de todos los proyectos");
                 });
             });
         });
@@ -196,6 +201,11 @@ fn central(context: &egui::Context, app: &mut Studio, show_projects: bool) {
             ui.add_space(4.0);
         }
 
+        if !app.state.is_connected() {
+            offline(ui, app);
+            return;
+        }
+
         if app.state.projects.is_empty() {
             ui.add_space(40.0);
             ui.vertical_centered(|ui| {
@@ -260,6 +270,94 @@ fn central(context: &egui::Context, app: &mut Studio, show_projects: bool) {
             Tab::System => system::panel(ui, app),
         }
     });
+}
+
+/// Shown instead of the workspace while the daemon is unreachable. Starting the service is
+/// the one action a new installation needs, and it should not require a terminal.
+fn offline(ui: &mut egui::Ui, app: &mut Studio) {
+    ui.add_space(30.0);
+    ui.vertical_centered(|ui| match &app.state.connection {
+        Some(Connection::Offline(message)) => {
+            ui.heading("Sin conexión con el daemon");
+            ui.add_space(6.0);
+            ui.label(
+                RichText::new(
+                    "JC Studio necesita jcsd para leer objetivos y ejecutar trabajo. La app \
+                         reintenta cada dos segundos.",
+                )
+                .weak(),
+            );
+            ui.add_space(10.0);
+            ui.label(RichText::new(message).monospace().small().weak());
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                if ui.button("Arrancar daemon").clicked() {
+                    match start_daemon() {
+                        Ok(message) => {
+                            app.state.notice = Some(Notice {
+                                message,
+                                error: false,
+                            });
+                        }
+                        Err(message) => {
+                            app.state.notice = Some(Notice {
+                                message,
+                                error: true,
+                            });
+                        }
+                    }
+                }
+                if ui.button("Reintentar ahora").clicked() {
+                    app.daemon.send(crate::daemon::Command::Refresh);
+                }
+            });
+            ui.add_space(12.0);
+            ui.label(
+                RichText::new(
+                    "Si no está instalado como servicio: `systemctl --user enable --now jcsd`. \
+                         Para ver los logs: `journalctl --user -u jcsd -f`.",
+                )
+                .weak()
+                .small(),
+            );
+        }
+        _ => {
+            ui.spinner();
+            ui.add_space(6.0);
+            ui.label("Conectando con el daemon…");
+        }
+    });
+}
+
+/// Tries the user service first, then a `jcsd` binary next to the application or on PATH.
+fn start_daemon() -> Result<String, String> {
+    if let Ok(status) = std::process::Command::new("systemctl")
+        .args(["--user", "start", "jcsd"])
+        .status()
+    {
+        if status.success() {
+            return Ok("jcsd arrancado con systemd".to_string());
+        }
+    }
+
+    let mut candidates = Vec::new();
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(directory) = executable.parent() {
+            candidates.push(directory.join("jcsd"));
+        }
+    }
+    candidates.push(std::path::PathBuf::from("jcsd"));
+
+    for candidate in candidates {
+        if let Ok(child) = std::process::Command::new(&candidate).spawn() {
+            return Ok(format!("jcsd arrancado (pid {})", child.id()));
+        }
+    }
+
+    Err(
+        "no se pudo arrancar jcsd: instala el servicio y ejecuta `systemctl --user start jcsd`"
+            .to_string(),
+    )
 }
 
 fn notice_bar(ui: &mut egui::Ui, app: &mut Studio, notice: Notice) {
@@ -338,6 +436,9 @@ fn events(ui: &mut egui::Ui, app: &mut Studio) {
         if ui.small_button("Limpiar").clicked() {
             app.state.events.clear();
         }
+        if app.state.selected_goal().is_some() {
+            ui.checkbox(&mut app.events_for_goal, "solo este objetivo");
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let count = app.state.events.len();
             ui.label(
@@ -354,10 +455,16 @@ fn events(ui: &mut egui::Ui, app: &mut Studio) {
     ui.add_space(2.0);
 
     let filter = app.event_filter.to_lowercase();
+    let only_goal = if app.events_for_goal {
+        app.state.selected_goal.clone()
+    } else {
+        None
+    };
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .stick_to_bottom(true)
         .show(ui, |ui| {
+            let mut shown = 0usize;
             for line in &app.state.events {
                 if !filter.is_empty()
                     && !line.kind.to_lowercase().contains(&filter)
@@ -365,6 +472,12 @@ fn events(ui: &mut egui::Ui, app: &mut Studio) {
                 {
                     continue;
                 }
+                if let Some(goal) = &only_goal {
+                    if line.goal_id.as_deref() != Some(goal.as_str()) {
+                        continue;
+                    }
+                }
+                shown += 1;
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(&line.time).monospace().weak().small());
                     let color = match line.kind.as_str() {
@@ -389,6 +502,16 @@ fn events(ui: &mut egui::Ui, app: &mut Studio) {
                     }
                 });
             }
+            if shown == 0 {
+                ui.label(
+                    RichText::new(if only_goal.is_some() {
+                        "Sin actividad registrada para este objetivo."
+                    } else {
+                        "Sin eventos que coincidan con el filtro."
+                    })
+                    .weak(),
+                );
+            }
         });
 }
 
@@ -411,6 +534,35 @@ pub fn badge(ui: &mut egui::Ui, status: &str) {
         .inner_margin(egui::Margin::symmetric(5, 2))
         .show(ui, |ui| {
             ui.label(RichText::new(status).small().color(color).strong());
+        });
+}
+
+/// A text field plus a catalog picker. Free text stays possible for models the backend
+/// does not advertise (an alias, a proxy, a model added after the last connection).
+pub fn model_selector(
+    ui: &mut egui::Ui,
+    id: &str,
+    value: &mut String,
+    models: &[jcs_proto::ModelCatalogEntry],
+) {
+    ui.add(
+        egui::TextEdit::singleline(value)
+            .hint_text("provider/modelo")
+            .desired_width(230.0),
+    );
+    egui::ComboBox::from_id_salt(id)
+        .selected_text("elegir")
+        .width(320.0)
+        .show_ui(ui, |ui| {
+            ui.selectable_value(value, String::new(), "sin modelo (lo decide el backend)");
+            for model in models {
+                let label = format!(
+                    "{}  ·  ${:.2} in / ${:.2} out",
+                    model.reference, model.cost_input, model.cost_output
+                );
+                ui.selectable_value(value, model.reference.clone(), label)
+                    .on_hover_text(&model.name);
+            }
         });
 }
 

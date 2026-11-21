@@ -409,6 +409,16 @@ pub struct MemoryStatsView {
     pub semantic_enabled: bool,
 }
 
+/// A model the backend advertises, with its price per million tokens.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelCatalogEntry {
+    /// `provider/model`, accepted anywhere a model reference is expected.
+    pub reference: String,
+    pub name: String,
+    pub cost_input: f64,
+    pub cost_output: f64,
+}
+
 /// Effective daemon settings, with the ones that need a restart.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SettingsView {

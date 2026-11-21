@@ -72,11 +72,8 @@ fn composer(ui: &mut egui::Ui, app: &mut Studio) {
                      planificador crea un DAG y cada tarea se verifica por separado.",
                 );
             ui.separator();
-            ui.add(
-                egui::TextEdit::singleline(&mut app.model)
-                    .hint_text("modelo (opcional)")
-                    .desired_width(220.0),
-            );
+            ui.label("Modelo");
+            crate::ui::model_selector(ui, "objective-model", &mut app.model, &app.state.models);
         });
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

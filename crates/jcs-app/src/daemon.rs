@@ -98,6 +98,7 @@ pub enum Update {
     GoalAction(GoalActionResponse),
     Project(ProjectView),
     Settings(jcs_proto::SettingsView),
+    Models(Vec<jcs_proto::ModelCatalogEntry>),
 }
 
 /// Handle owned by the interface.
@@ -166,6 +167,12 @@ async fn connection_loop(
 
         offline_reported = None;
         let _ = updates.send(Update::Online(health));
+
+        // The catalog changes rarely; refresh it on every (re)connection instead of
+        // asking on each frame.
+        if let Ok(models) = client.models().await {
+            let _ = updates.send(Update::Models(models));
+        }
 
         if !seeded {
             if let Ok(history) = client.event_history(None, 200).await {

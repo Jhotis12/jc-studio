@@ -57,9 +57,9 @@ CLI y reintenta cada dos segundos si el daemon no está.
 | Sistema | Salud del daemon, rutas y totales |
 | Consola | Eventos en vivo y terminales reales (PTY) |
 
-Los **ajustes** se editan en la ventana «Ajustes»: modelos, agente, revisión, techo de
-riesgo, timeout, contexto, reparación y concurrencia; por proyecto, auto-merge y
-presupuestos. El daemon valida, guarda en la base y registra `settings_changed`. Las
+Los **ajustes** se editan en la ventana «Ajustes»: modelos (con un selector que muestra el
+precio de cada uno), agente, revisión, techo de riesgo, timeout, contexto, reparación y
+concurrencia; por proyecto, auto-merge y presupuestos. El daemon valida, guarda en la base y registra `settings_changed`. Las
 variables de entorno son el **valor inicial**; a partir de ahí manda lo guardado. Cambiar
 la concurrencia requiere reiniciar `jcsd` (la app lo avisa).
 
