@@ -13,6 +13,9 @@ fn project_at(root: PathBuf) -> Project {
         root_path: root,
         base_branch: "main".to_string(),
         created_at: Timestamp::now(),
+        auto_merge: false,
+        budget_usd_per_day: None,
+        budget_tokens_per_day: None,
     }
 }
 
@@ -65,6 +68,9 @@ async fn projects_roundtrip_and_reject_duplicates() {
         root_path: PathBuf::from("/somewhere/else"),
         base_branch: "main".into(),
         created_at: Timestamp::now(),
+        auto_merge: false,
+        budget_usd_per_day: None,
+        budget_tokens_per_day: None,
     };
     let error = store.insert_project(&duplicate_name).await.unwrap_err();
     assert!(matches!(error, StoreError::Conflict(_)), "{error:?}");

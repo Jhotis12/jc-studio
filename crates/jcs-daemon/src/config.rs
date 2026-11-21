@@ -26,6 +26,13 @@ pub struct Config {
     pub default_packs: Vec<String>,
     /// How many times a failed verification is sent back to the agent before escalating.
     pub max_repair_cycles: usize,
+    /// Model used for planning; defaults to `default_model`.
+    pub planning_model: Option<String>,
+    pub planning_agent: Option<String>,
+    /// How long a task lease survives without a heartbeat.
+    pub lease_ttl_secs: u64,
+    /// How often a running task renews its lease.
+    pub heartbeat_secs: u64,
 }
 
 impl Config {
@@ -53,6 +60,10 @@ impl Config {
                 })
                 .unwrap_or_default(),
             max_repair_cycles: env_parse("JCS_MAX_REPAIR_CYCLES").unwrap_or(2).min(5),
+            planning_model: env_non_empty("JCS_PLANNING_MODEL"),
+            planning_agent: env_non_empty("JCS_PLANNING_AGENT"),
+            lease_ttl_secs: env_parse("JCS_LEASE_TTL_SECS").unwrap_or(90).max(10),
+            heartbeat_secs: env_parse("JCS_HEARTBEAT_SECS").unwrap_or(20).max(2),
         }
     }
 }

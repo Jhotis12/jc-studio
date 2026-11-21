@@ -5,7 +5,7 @@ use crate::store::Store;
 use jcs_core::{EventKind, Goal, GoalId, GoalStatus, NewEvent, ProjectId, StatusMachine};
 
 #[derive(Debug, FromRow)]
-struct GoalRow {
+pub(crate) struct GoalRow {
     id: String,
     project_id: String,
     prompt: String,
@@ -15,7 +15,7 @@ struct GoalRow {
 }
 
 impl GoalRow {
-    fn into_domain(self) -> Result<Goal> {
+    pub(crate) fn into_domain(self) -> Result<Goal> {
         Ok(Goal {
             id: GoalId::parse(self.id)?,
             project_id: ProjectId::parse(self.project_id)?,
@@ -33,8 +33,30 @@ macro_rules! goal_columns {
     };
 }
 
+/// Execution settings chosen when the goal was created.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GoalSettings {
+    pub model: Option<String>,
+    pub agent: Option<String>,
+    /// `auto` or `strict`, matching the wire protocol.
+    pub permissions: String,
+}
+
 impl Store {
     pub async fn create_goal(&self, project_id: &ProjectId, prompt: &str) -> Result<Goal> {
+        self.create_goal_with_settings(project_id, prompt, None, None, "auto")
+            .await
+    }
+
+    /// Creates a goal that remembers how its tasks must be executed.
+    pub async fn create_goal_with_settings(
+        &self,
+        project_id: &ProjectId,
+        prompt: &str,
+        model: Option<&str>,
+        agent: Option<&str>,
+        permissions: &str,
+    ) -> Result<Goal> {
         let prompt = prompt.trim();
         if prompt.is_empty() {
             return Err(StoreError::Domain(jcs_core::CoreError::EmptyField {
@@ -59,8 +81,9 @@ impl Store {
 
         let mut tx = self.pool().begin().await?;
         sqlx::query(
-            "INSERT INTO goals (id, project_id, prompt, status, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO goals \
+             (id, project_id, prompt, status, created_at, updated_at, model, agent, permissions) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(goal.id.as_str())
         .bind(goal.project_id.as_str())
@@ -68,6 +91,9 @@ impl Store {
         .bind(goal.status.as_str())
         .bind(crate::store::encode_ts(goal.created_at))
         .bind(crate::store::encode_ts(goal.updated_at))
+        .bind(model)
+        .bind(agent)
+        .bind(permissions)
         .execute(&mut *tx)
         .await?;
 
@@ -109,6 +135,22 @@ impl Store {
         self.get_goal(id)
             .await?
             .ok_or_else(|| StoreError::not_found("goal", id))
+    }
+
+    /// The execution settings a goal was created with.
+    pub async fn goal_settings(&self, id: &GoalId) -> Result<GoalSettings> {
+        let row: Option<(Option<String>, Option<String>, String)> =
+            sqlx::query_as("SELECT model, agent, permissions FROM goals WHERE id = ?")
+                .bind(id.as_str())
+                .fetch_optional(self.pool())
+                .await?;
+
+        let (model, agent, permissions) = row.ok_or_else(|| StoreError::not_found("goal", id))?;
+        Ok(GoalSettings {
+            model,
+            agent,
+            permissions,
+        })
     }
 
     pub async fn get_goal(&self, id: &GoalId) -> Result<Option<Goal>> {

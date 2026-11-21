@@ -7,18 +7,23 @@
 //!   2. the task reaches `Verifying` before any gate runs, so success is never recorded
 //!      on the agent's word alone;
 //!   3. the run only finishes after the gates have their verdict.
+//!
+//! The executor owns the *task*, not the *goal*: goal status is derived by the scheduler
+//! from the task counts, so a multi-task plan cannot be finalized by whichever task
+//! happened to finish last.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use jcs_agent::{ExecutionOutcome, ModelRef, OpenCodeClient, ToolInvocation};
-use jcs_core::{
-    EventKind, GateStatus, Goal, GoalStatus, NewEvent, Project, RunId, RunStatus, Task, TaskId,
-    TaskStatus,
-};
+use jcs_core::{EventKind, GateStatus, Goal, NewEvent, Project, RunId, Task, TaskId, TaskStatus};
 use jcs_git::{branch_name, CommitKind, ConventionalCommit, Repo};
 use jcs_proto::PermissionMode;
+use jcs_store::Store;
 use serde_json::json;
+use tokio::task::JoinHandle;
 use tokio::time::{interval, MissedTickBehavior};
 
 use crate::state::AppState;
@@ -26,24 +31,23 @@ use crate::state::AppState;
 /// How long text deltas are buffered before being persisted as one event.
 const TEXT_FLUSH_INTERVAL: Duration = Duration::from_millis(300);
 /// How often the backend is reconciled over REST (outcome, forms, permissions).
-///
-/// Event delivery is an optimization; this poll is what guarantees termination even if
-/// an event shape changes or a notification is missed.
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(2);
 /// Upper bound on a single persisted text chunk.
 const TEXT_CHUNK_LIMIT: usize = 4_000;
 
+/// Everything the executor needs to run one task.
 #[derive(Debug, Clone)]
-pub struct TaskRequest {
+pub struct TaskDispatch {
     pub task_id: TaskId,
-    pub run_id: RunId,
     pub model: Option<String>,
     pub agent: Option<String>,
     pub permissions: PermissionMode,
+    /// Owner of the task lease; used for heartbeats and release.
+    pub lease_owner: String,
 }
 
 /// Starts a task in the background, bounded by the concurrency semaphore.
-pub fn spawn(state: AppState, request: TaskRequest) {
+pub fn spawn(state: AppState, dispatch: TaskDispatch) {
     tokio::spawn(async move {
         let permit = match state.permits.clone().acquire_owned().await {
             Ok(permit) => permit,
@@ -53,15 +57,30 @@ pub fn spawn(state: AppState, request: TaskRequest) {
             }
         };
 
-        if let Err(error) = run_task(&state, &request).await {
-            tracing::error!(
-                task = %request.task_id,
-                run = %request.run_id,
-                error = %error,
-                "task failed"
-            );
-            if let Err(mark) = fail_task(&state, &request, &format!("{error:#}")).await {
-                tracing::error!(error = %mark, "could not record the failure");
+        let guard = LeaseGuard::start(&state, &dispatch);
+
+        match run_task(&state, &dispatch, &guard).await {
+            Ok(()) => {}
+            Err(error) if guard.lost() => {
+                // Someone else owns the task now; touching its state would fight them.
+                tracing::warn!(
+                    task = %dispatch.task_id,
+                    error = %format!("{error:#}"),
+                    "lease lost; abandoning this execution"
+                );
+            }
+            Err(error) => {
+                tracing::error!(
+                    task = %dispatch.task_id,
+                    error = %format!("{error:#}"),
+                    "task failed"
+                );
+                let run_id = guard.run_id();
+                if let Err(mark) =
+                    fail_task(&state, &dispatch, run_id.as_ref(), &format!("{error:#}")).await
+                {
+                    tracing::error!(error = %mark, "could not record the failure");
+                }
             }
         }
 
@@ -69,12 +88,12 @@ pub fn spawn(state: AppState, request: TaskRequest) {
     });
 }
 
-async fn run_task(state: &AppState, request: &TaskRequest) -> Result<()> {
+async fn run_task(state: &AppState, dispatch: &TaskDispatch, guard: &LeaseGuard) -> Result<()> {
     let task = state
         .store
-        .get_task(&request.task_id)
+        .get_task(&dispatch.task_id)
         .await?
-        .ok_or_else(|| anyhow!("task {} no longer exists", request.task_id))?;
+        .ok_or_else(|| anyhow!("task {} no longer exists", dispatch.task_id))?;
     let goal = state
         .store
         .get_goal(&task.goal_id)
@@ -86,12 +105,10 @@ async fn run_task(state: &AppState, request: &TaskRequest) -> Result<()> {
         .await?
         .ok_or_else(|| anyhow!("project {} no longer exists", goal.project_id))?;
 
-    if goal.status == GoalStatus::Pending {
-        state
-            .store
-            .set_goal_status(&goal.id, GoalStatus::Running)
-            .await?;
-    }
+    // Every attempt is its own run: retries are counted, never overwritten.
+    let run = state.store.start_run(&task.id).await?;
+    guard.set_run_id(&run.id);
+    let run_id = run.id.clone();
 
     // 1. Isolate before anything else can touch the repository.
     let worktree = state
@@ -101,6 +118,14 @@ async fn run_task(state: &AppState, request: &TaskRequest) -> Result<()> {
         .join(task.id.as_str());
     let branch = branch_name(&goal.prompt, task.id.as_str());
 
+    // Dependent tasks must see their predecessors: cut from the goal's integration
+    // branch, not from the original base.
+    let base_branch = state
+        .store
+        .goal_integration_branch(&goal.id)
+        .await?
+        .unwrap_or_else(|| project.base_branch.clone());
+
     if !worktree.exists() {
         let repo = Repo::new(&project.root_path);
         repo.require_repository().await.with_context(|| {
@@ -109,7 +134,7 @@ async fn run_task(state: &AppState, request: &TaskRequest) -> Result<()> {
                 project.root_path.display()
             )
         })?;
-        repo.create_worktree(&worktree, &branch, &project.base_branch)
+        repo.create_worktree(&worktree, &branch, &base_branch)
             .await
             .with_context(|| format!("cannot create a worktree at {}", worktree.display()))?;
         state
@@ -130,7 +155,7 @@ async fn run_task(state: &AppState, request: &TaskRequest) -> Result<()> {
         .await
         .map_err(|error| anyhow!(error.message))?;
 
-    let model = match request
+    let model = match dispatch
         .model
         .clone()
         .or_else(|| state.config.default_model.clone())
@@ -138,7 +163,7 @@ async fn run_task(state: &AppState, request: &TaskRequest) -> Result<()> {
         Some(reference) => Some(ModelRef::parse(&reference)?),
         None => None,
     };
-    let agent_name = request
+    let agent_name = dispatch
         .agent
         .clone()
         .or_else(|| state.config.default_agent.clone());
@@ -159,7 +184,7 @@ async fn run_task(state: &AppState, request: &TaskRequest) -> Result<()> {
         .link_session(&task.id, &project.id, &session.id, &worktree)
         .await?;
 
-    let prompt = build_prompt(&goal, &worktree, &branch, &project.base_branch);
+    let prompt = build_prompt(&goal, &task, &worktree, &branch, &project.base_branch);
     agent
         .prompt(&session.id, &prompt, "queue")
         .await
@@ -169,7 +194,7 @@ async fn run_task(state: &AppState, request: &TaskRequest) -> Result<()> {
     let mut repair_cycles = 0usize;
 
     loop {
-        match pump_events(state, request, &session.id).await? {
+        match pump_events(state, dispatch, &run_id, &session.id).await? {
             PumpResult::Finished(ExecutionOutcome::Succeeded) => {}
             PumpResult::Finished(ExecutionOutcome::Failed) => {
                 return Err(anyhow!("the agent reported that the execution failed"));
@@ -177,9 +202,8 @@ async fn run_task(state: &AppState, request: &TaskRequest) -> Result<()> {
             PumpResult::Finished(ExecutionOutcome::Interrupted) => {
                 return Err(anyhow!("the execution was interrupted before it completed"));
             }
-            // A question is a human decision, not a hang: park the task and release the run.
             PumpResult::NeedsInput(question) => {
-                return block_for_input(state, request, &task, &goal, &question).await;
+                return block_for_input(state, dispatch, &run_id, &task, &question).await;
             }
             PumpResult::TimedOut => {
                 return Err(anyhow!(
@@ -189,6 +213,10 @@ async fn run_task(state: &AppState, request: &TaskRequest) -> Result<()> {
             }
         }
 
+        if guard.lost() {
+            bail!("the task lease was lost; another owner is responsible for this task");
+        }
+
         state
             .store
             .set_task_status(&task.id, TaskStatus::Verifying)
@@ -196,28 +224,31 @@ async fn run_task(state: &AppState, request: &TaskRequest) -> Result<()> {
 
         // The run's gate list should describe the latest attempt; the event log keeps
         // every attempt.
-        state.store.clear_gate_results(&request.run_id).await?;
-        let verification = run_project_gates(state, &project, &worktree, &request.run_id).await?;
+        state.store.clear_gate_results(&run_id).await?;
+        let evaluation = crate::verify::evaluate(state, &project, &worktree).await?;
+        evaluation.record(&state.store, &run_id).await?;
 
-        if verification.passed {
-            return finalize_success(state, request, &task, &goal, &project, &worktree, &branch)
-                .await;
+        if evaluation.passed() {
+            return finalize_success(
+                state, dispatch, &run_id, &task, &project, &worktree, &branch,
+            )
+            .await;
         }
 
         if repair_cycles >= state.config.max_repair_cycles {
             let question = format!(
                 "verification failed after {repair_cycles} repair cycle(s); still failing: {}. \
                  Inspect the worktree, fix the cause, or adjust the policy.",
-                verification.failed_gates.join(", ")
+                evaluation.failed_names().join(", ")
             );
-            return block_for_input(state, request, &task, &goal, &question).await;
+            return block_for_input(state, dispatch, &run_id, &task, &question).await;
         }
 
         repair_cycles += 1;
         tracing::warn!(
             task = %task.id,
             cycle = repair_cycles,
-            gates = ?verification.failed_gates,
+            gates = ?evaluation.failed_names(),
             "gates failed; asking the agent to repair"
         );
 
@@ -230,7 +261,7 @@ async fn run_task(state: &AppState, request: &TaskRequest) -> Result<()> {
         agent
             .prompt(
                 &session.id,
-                &repair_prompt(&verification.failed_gates, &verification.excerpt),
+                &repair_prompt(&evaluation.failed_names(), &evaluation.excerpt(6_000)),
                 "queue",
             )
             .await
@@ -239,6 +270,89 @@ async fn run_task(state: &AppState, request: &TaskRequest) -> Result<()> {
         // The previous turn's `outcome` persists in the backend. Wait until the new turn
         // is actually running before subscribing again, or we would read a stale verdict.
         wait_until_busy(&agent, &session.id).await;
+    }
+}
+
+/// Guards a task lease for the lifetime of an execution.
+///
+/// The heartbeat is the only thing standing between "one owner" and "two agents editing
+/// the same worktree", so losing it aborts the execution instead of being ignored.
+struct LeaseGuard {
+    store: Arc<Store>,
+    resource: String,
+    owner: String,
+    lost: Arc<AtomicBool>,
+    run_id: std::sync::Mutex<Option<RunId>>,
+    heartbeat: JoinHandle<()>,
+}
+
+impl LeaseGuard {
+    fn start(state: &AppState, dispatch: &TaskDispatch) -> Self {
+        let resource = format!("task:{}", dispatch.task_id);
+        let owner = dispatch.lease_owner.clone();
+        let lost = Arc::new(AtomicBool::new(false));
+        let ttl = Duration::from_secs(state.config.lease_ttl_secs);
+        let every = Duration::from_secs(state.config.heartbeat_secs);
+
+        let heartbeat = tokio::spawn({
+            let store = state.store.clone();
+            let resource = resource.clone();
+            let owner = owner.clone();
+            let lost = lost.clone();
+            async move {
+                loop {
+                    tokio::time::sleep(every).await;
+                    match store.renew_lease(&resource, &owner, ttl).await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            lost.store(true, Ordering::SeqCst);
+                            return;
+                        }
+                        Err(error) => {
+                            tracing::warn!(error = %error, "lease heartbeat failed");
+                        }
+                    }
+                }
+            }
+        });
+
+        Self {
+            store: state.store.clone(),
+            resource,
+            owner,
+            lost,
+            run_id: std::sync::Mutex::new(None),
+            heartbeat,
+        }
+    }
+
+    fn set_run_id(&self, run_id: &RunId) {
+        if let Ok(mut slot) = self.run_id.lock() {
+            *slot = Some(run_id.clone());
+        }
+    }
+
+    fn run_id(&self) -> Option<RunId> {
+        self.run_id.lock().ok().and_then(|slot| slot.clone())
+    }
+
+    fn lost(&self) -> bool {
+        self.lost.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for LeaseGuard {
+    fn drop(&mut self) {
+        self.heartbeat.abort();
+
+        let store = self.store.clone();
+        let resource = self.resource.clone();
+        let owner = self.owner.clone();
+        tokio::spawn(async move {
+            if let Err(error) = store.release_lease(&resource, &owner).await {
+                tracing::debug!(error = %error, "cannot release the task lease");
+            }
+        });
     }
 }
 
@@ -256,7 +370,8 @@ enum PumpResult {
 /// event, periodic REST reconciliation, and a hard deadline. Any one of them is enough.
 async fn pump_events(
     state: &AppState,
-    request: &TaskRequest,
+    dispatch: &TaskDispatch,
+    run_id: &RunId,
     session_id: &str,
 ) -> Result<PumpResult> {
     let agent = state
@@ -282,7 +397,7 @@ async fn pump_events(
     loop {
         tokio::select! {
             _ = &mut deadline => {
-                flush_text(state, request, session_id, &mut buffer).await?;
+                flush_text(state, &dispatch.task_id, run_id, session_id, &mut buffer).await?;
                 return Ok(PumpResult::TimedOut);
             }
 
@@ -308,7 +423,7 @@ async fn pump_events(
                     state
                         .store
                         .set_run_usage(
-                            &request.run_id,
+                            run_id,
                             reported.cost_usd,
                             reported.tokens_in,
                             reported.tokens_out,
@@ -317,22 +432,22 @@ async fn pump_events(
                 }
 
                 if let Some(tool) = event.tool_invocation() {
-                    record_tool(state, request, session_id, &tool).await?;
+                    record_tool(state, &dispatch.task_id, run_id, session_id, &tool).await?;
                 }
 
                 if let Some(outcome) = event.execution_outcome() {
-                    flush_text(state, request, session_id, &mut buffer).await?;
+                    flush_text(state, &dispatch.task_id, run_id, session_id, &mut buffer).await?;
                     return Ok(PumpResult::Finished(outcome));
                 }
             }
 
             _ = text_flush.tick() => {
-                flush_text(state, request, session_id, &mut buffer).await?;
+                flush_text(state, &dispatch.task_id, run_id, session_id, &mut buffer).await?;
             }
 
             _ = reconcile_tick.tick() => {
-                if let Some(result) = reconcile(state, request, session_id).await? {
-                    flush_text(state, request, session_id, &mut buffer).await?;
+                if let Some(result) = reconcile(state, dispatch, run_id, session_id).await? {
+                    flush_text(state, &dispatch.task_id, run_id, session_id, &mut buffer).await?;
                     return Ok(result);
                 }
             }
@@ -346,7 +461,8 @@ async fn pump_events(
 /// forms decide "needs input", and pending permissions are answered here.
 async fn reconcile(
     state: &AppState,
-    request: &TaskRequest,
+    dispatch: &TaskDispatch,
+    run_id: &RunId,
     session_id: &str,
 ) -> Result<Option<PumpResult>> {
     let agent = state
@@ -379,7 +495,7 @@ async fn reconcile(
         return Ok(Some(PumpResult::NeedsInput(question)));
     }
 
-    resolve_permissions(state, request, session_id).await?;
+    resolve_permissions(state, dispatch, run_id, session_id).await?;
     Ok(None)
 }
 
@@ -436,7 +552,8 @@ fn describe_form(form: &serde_json::Value) -> String {
 
 async fn flush_text(
     state: &AppState,
-    request: &TaskRequest,
+    task_id: &TaskId,
+    run_id: &RunId,
     session_id: &str,
     buffer: &mut String,
 ) -> Result<()> {
@@ -458,8 +575,8 @@ async fn flush_text(
     };
 
     let event = NewEvent::new(EventKind::AgentText)
-        .task(&request.task_id)
-        .run(&request.run_id)
+        .task(task_id)
+        .run(run_id)
         .payload(json!({ "session_id": session_id, "text": chunk }));
     jcs_store::append_event(&state.store, event).await?;
 
@@ -469,7 +586,8 @@ async fn flush_text(
 
 async fn record_tool(
     state: &AppState,
-    request: &TaskRequest,
+    task_id: &TaskId,
+    run_id: &RunId,
     session_id: &str,
     tool: &ToolInvocation,
 ) -> Result<()> {
@@ -480,8 +598,8 @@ async fn record_tool(
     };
 
     let event = NewEvent::new(kind)
-        .task(&request.task_id)
-        .run(&request.run_id)
+        .task(task_id)
+        .run(run_id)
         .payload(json!({
             "session_id": session_id,
             "tool": tool.name,
@@ -498,7 +616,8 @@ async fn record_tool(
 /// Answers every pending permission request according to the configured mode.
 async fn resolve_permissions(
     state: &AppState,
-    request: &TaskRequest,
+    dispatch: &TaskDispatch,
+    run_id: &RunId,
     session_id: &str,
 ) -> Result<()> {
     let agent = state
@@ -522,7 +641,7 @@ async fn resolve_permissions(
             .unwrap_or("unknown");
         let resources = entry.get("resources").cloned().unwrap_or_else(|| json!([]));
 
-        let (decision, reason) = decide(request.permissions, action, state.config.allow_shell);
+        let (decision, reason) = decide(dispatch.permissions, action, state.config.allow_shell);
 
         tracing::info!(
             session = session_id,
@@ -537,8 +656,8 @@ async fn resolve_permissions(
             .with_context(|| format!("cannot reply to permission {id}"))?;
 
         let event = NewEvent::new(EventKind::AgentToolFinished)
-            .task(&request.task_id)
-            .run(&request.run_id)
+            .task(&dispatch.task_id)
+            .run(run_id)
             .payload(json!({
                 "kind": "permission_decision",
                 "session_id": session_id,
@@ -602,77 +721,6 @@ fn decide(mode: PermissionMode, action: &str, allow_shell: bool) -> (&'static st
     }
 }
 
-/// Outcome of running a project's policy gates in a worktree.
-struct Verification {
-    passed: bool,
-    failed_gates: Vec<String>,
-    /// Bounded, per-gate output used to build the repair prompt.
-    excerpt: String,
-}
-
-/// Runs the project's gates inside the task worktree.
-///
-/// A project without a policy has no gates: the built-in commit gates still apply, so
-/// "no policy" cannot mean "nothing is checked".
-async fn run_project_gates(
-    state: &AppState,
-    project: &Project,
-    worktree: &std::path::Path,
-    run_id: &RunId,
-) -> Result<Verification> {
-    let compiled = jcs_policy::compile(
-        &project.root_path,
-        &state.packs,
-        &state.config.default_packs,
-    )
-    .map_err(|error| anyhow!("cannot compile the policy of {}: {error}", project.name))?;
-
-    let gates = compiled.composition.gate_set();
-    if gates.is_empty() {
-        return Ok(Verification {
-            passed: true,
-            failed_gates: Vec::new(),
-            excerpt: String::new(),
-        });
-    }
-
-    let outcomes = jcs_gates::run_all(&gates, worktree).await;
-
-    for outcome in &outcomes {
-        state
-            .store
-            .add_gate_result(
-                run_id,
-                &outcome.name,
-                outcome.status,
-                outcome.exit_code,
-                outcome.duration_ms,
-                Some(&outcome.excerpt),
-            )
-            .await?;
-    }
-
-    let passed = jcs_gates::GateSet::all_required_passed(&outcomes, &gates);
-    let failed_gates: Vec<String> = outcomes
-        .iter()
-        .filter(|outcome| outcome.failed())
-        .map(|outcome| outcome.name.clone())
-        .collect();
-
-    let excerpt = outcomes
-        .iter()
-        .filter(|outcome| outcome.failed())
-        .map(|outcome| format!("### {}\n{}", outcome.name, outcome.excerpt))
-        .collect::<Vec<_>>()
-        .join("\n\n");
-
-    Ok(Verification {
-        passed,
-        failed_gates,
-        excerpt: truncate_chars(&excerpt, 6_000),
-    })
-}
-
 fn repair_prompt(failed_gates: &[String], excerpt: &str) -> String {
     format!(
         "The verification gates failed: {}.\n\
@@ -708,61 +756,11 @@ async fn wait_until_busy(agent: &OpenCodeClient, session_id: &str) {
     }
 }
 
-fn truncate_chars(value: &str, max: usize) -> String {
-    if value.chars().count() <= max {
-        return value.to_string();
-    }
-    value.chars().take(max).collect::<String>() + "\n… (truncated)"
-}
-
-/// Parks a task that needs a human decision.
-///
-/// `Blocked`, not `Failed`: the objective is still wanted, and the question is preserved
-/// in the event log so the operator can act on it.
-async fn block_for_input(
-    state: &AppState,
-    request: &TaskRequest,
-    task: &Task,
-    goal: &Goal,
-    question: &str,
-) -> Result<()> {
-    state
-        .store
-        .set_task_status(&task.id, TaskStatus::Blocked)
-        .await?;
-    state
-        .store
-        .set_goal_status(&goal.id, GoalStatus::Blocked)
-        .await?;
-    state
-        .store
-        .finish_run(
-            &request.run_id,
-            RunStatus::Failed,
-            None,
-            Some(format!("needs input: {question}")),
-        )
-        .await?;
-
-    let event = NewEvent::new(EventKind::Error)
-        .task(&task.id)
-        .goal(&goal.id)
-        .run(&request.run_id)
-        .payload(json!({
-            "category": "needs_input",
-            "question": question,
-            "hint": "the task is parked as blocked; restate the objective or answer it",
-        }));
-    jcs_store::append_event(&state.store, event).await?;
-
-    Ok(())
-}
-
 async fn finalize_success(
     state: &AppState,
-    request: &TaskRequest,
+    dispatch: &TaskDispatch,
+    run_id: &RunId,
     task: &Task,
-    goal: &Goal,
     project: &Project,
     worktree: &std::path::Path,
     branch: &str,
@@ -772,7 +770,7 @@ async fn finalize_success(
     state
         .store
         .add_gate_result(
-            &request.run_id,
+            run_id,
             "agent-outcome",
             GateStatus::Passed,
             Some(0),
@@ -792,7 +790,7 @@ async fn finalize_success(
             state
                 .store
                 .add_gate_result(
-                    &request.run_id,
+                    run_id,
                     "changes-produced",
                     GateStatus::Failed,
                     Some(0),
@@ -801,15 +799,14 @@ async fn finalize_success(
                 )
                 .await?;
             return Err(anyhow!(
-                "the agent reported success but produced no changes; \
-                 nothing was committed"
+                "the agent reported success but produced no changes; nothing was committed"
             ));
         }
         Err(error) => {
             state
                 .store
                 .add_gate_result(
-                    &request.run_id,
+                    run_id,
                     "commit",
                     GateStatus::Errored,
                     None,
@@ -824,7 +821,7 @@ async fn finalize_success(
     state
         .store
         .add_gate_result(
-            &request.run_id,
+            run_id,
             "commit",
             GateStatus::Passed,
             Some(0),
@@ -835,8 +832,8 @@ async fn finalize_success(
 
     let event = NewEvent::new(EventKind::CommitCreated)
         .task(&task.id)
-        .goal(&goal.id)
-        .run(&request.run_id)
+        .goal(&task.goal_id)
+        .run(run_id)
         .payload(json!({
             "sha": commit.sha,
             "short": commit.short,
@@ -851,7 +848,7 @@ async fn finalize_success(
     state
         .store
         .add_gate_result(
-            &request.run_id,
+            run_id,
             "worktree-clean",
             if clean {
                 GateStatus::Passed
@@ -874,25 +871,49 @@ async fn finalize_success(
         ));
     }
 
+    // Order matters: the scheduler finalizes a goal as soon as every task is terminal,
+    // and a client stops following on that event. If the task became terminal before the
+    // run did, the client could exit before ever seeing the run's conclusion.
+    state
+        .store
+        .finish_run(run_id, jcs_core::RunStatus::Succeeded, Some(0), None)
+        .await?;
     state
         .store
         .set_task_status(&task.id, TaskStatus::Succeeded)
         .await?;
-    state
-        .store
-        .set_goal_status(&goal.id, GoalStatus::Succeeded)
-        .await?;
-    state
-        .store
-        .finish_run(&request.run_id, RunStatus::Succeeded, Some(0), None)
-        .await?;
 
+    tracing::info!(task = %task.id, sha = %commit.short, "task succeeded");
+    let _ = dispatch;
     Ok(())
 }
 
 /// Records an honest failure without masking a run that already finished.
-async fn fail_task(state: &AppState, request: &TaskRequest, reason: &str) -> Result<()> {
-    if let Some(task) = state.store.get_task(&request.task_id).await? {
+async fn fail_task(
+    state: &AppState,
+    dispatch: &TaskDispatch,
+    run_id: Option<&RunId>,
+    reason: &str,
+) -> Result<()> {
+    // The run may already be terminal (for example after an explicit abort).
+    if let Some(run_id) = run_id {
+        if let Some(run) = state.store.get_run(run_id).await? {
+            if run.status == jcs_core::RunStatus::Started {
+                state
+                    .store
+                    .finish_run(
+                        run_id,
+                        jcs_core::RunStatus::Failed,
+                        None,
+                        Some(reason.to_string()),
+                    )
+                    .await?;
+            }
+        }
+    }
+
+    // Terminal task state last, so the scheduler cannot finalize the goal before the run.
+    if let Some(task) = state.store.get_task(&dispatch.task_id).await? {
         if matches!(task.status, TaskStatus::Running | TaskStatus::Verifying) {
             if let Err(error) = state
                 .store
@@ -902,40 +923,55 @@ async fn fail_task(state: &AppState, request: &TaskRequest, reason: &str) -> Res
                 tracing::warn!(error = %error, "cannot mark the task as failed");
             }
         }
-
-        if let Some(goal) = state.store.get_goal(&task.goal_id).await? {
-            if goal.status == GoalStatus::Running {
-                if let Err(error) = state
-                    .store
-                    .set_goal_status(&goal.id, GoalStatus::Failed)
-                    .await
-                {
-                    tracing::warn!(error = %error, "cannot mark the goal as failed");
-                }
-            }
-        }
-    }
-
-    // The run may already be terminal (for example after an explicit abort).
-    if let Some(run) = state.store.get_run(&request.run_id).await? {
-        if run.status == RunStatus::Started {
-            state
-                .store
-                .finish_run(
-                    &request.run_id,
-                    RunStatus::Failed,
-                    None,
-                    Some(reason.to_string()),
-                )
-                .await?;
-        }
     }
 
     Ok(())
 }
 
+/// Parks a task that needs a human decision.
+///
+/// `Blocked`, not `Failed`: the objective is still wanted, and the question is preserved
+/// in the event log so the operator can act on it.
+async fn block_for_input(
+    state: &AppState,
+    dispatch: &TaskDispatch,
+    run_id: &RunId,
+    task: &Task,
+    question: &str,
+) -> Result<()> {
+    state
+        .store
+        .finish_run(
+            run_id,
+            jcs_core::RunStatus::Failed,
+            None,
+            Some(format!("needs input: {question}")),
+        )
+        .await?;
+    // Terminal task state last: it is what the scheduler uses to finalize the goal.
+    state
+        .store
+        .set_task_status(&task.id, TaskStatus::Blocked)
+        .await?;
+
+    let event = NewEvent::new(EventKind::Error)
+        .task(&task.id)
+        .goal(&task.goal_id)
+        .run(run_id)
+        .payload(json!({
+            "category": "needs_input",
+            "question": question,
+            "hint": "the task is parked as blocked; restate the objective or answer it",
+        }));
+    jcs_store::append_event(&state.store, event).await?;
+
+    let _ = dispatch;
+    Ok(())
+}
+
 fn build_prompt(
     goal: &Goal,
+    task: &Task,
     worktree: &std::path::Path,
     branch: &str,
     base_branch: &str,
@@ -947,6 +983,9 @@ fn build_prompt(
          Branch: {branch} (cut from {base_branch})\n\
          \n\
          Objective:\n{prompt}\n\
+         \n\
+         Task: {title}\n\
+         {description}\n\
          \n\
          Rules:\n\
          - Make changes directly in this worktree. Do not touch any other directory.\n\
@@ -961,6 +1000,12 @@ fn build_prompt(
          When you are done, reply with a brief summary of what you changed and why.\n",
         worktree = worktree.display(),
         prompt = goal.prompt,
+        title = task.title,
+        description = if task.path_claims.is_empty() {
+            String::new()
+        } else {
+            format!("Expected paths: {}", task.path_claims.join(", "))
+        },
     )
 }
 
@@ -997,6 +1042,13 @@ fn truncate_json(value: &serde_json::Value, max: usize) -> String {
 mod tests {
     use super::*;
     use jcs_core::GoalId;
+
+    fn truncate_chars(value: &str, max: usize) -> String {
+        if value.chars().count() <= max {
+            return value.to_string();
+        }
+        value.chars().take(max).collect::<String>() + "\n… (truncated)"
+    }
 
     #[test]
     fn file_work_is_auto_approved_in_auto_mode() {
@@ -1062,22 +1114,42 @@ mod tests {
     }
 
     #[test]
-    fn prompt_states_the_isolation_and_the_commit_rules() {
+    fn the_prompt_states_isolation_claims_and_commit_rules() {
         let goal = Goal {
             id: GoalId::new(),
             project_id: jcs_core::ProjectId::new(),
             prompt: "do the thing".into(),
-            status: GoalStatus::Running,
+            status: jcs_core::GoalStatus::Running,
             created_at: jiff::Timestamp::now(),
             updated_at: jiff::Timestamp::now(),
         };
-        let prompt = build_prompt(&goal, std::path::Path::new("/tmp/wt"), "jcs/x/abc", "main");
+        let task = Task {
+            id: TaskId::new(),
+            goal_id: goal.id.clone(),
+            title: "the task".into(),
+            status: TaskStatus::Running,
+            worktree: None,
+            branch: None,
+            session_id: None,
+            role: jcs_core::TaskRole::Implement,
+            priority: 0,
+            path_claims: vec!["src/api".into()],
+            created_at: jiff::Timestamp::now(),
+            updated_at: jiff::Timestamp::now(),
+        };
+
+        let prompt = build_prompt(
+            &goal,
+            &task,
+            std::path::Path::new("/tmp/wt"),
+            "jcs/x/abc",
+            "main",
+        );
 
         assert!(prompt.contains("/tmp/wt"));
         assert!(prompt.contains("Do not commit"));
         assert!(prompt.contains("Do not ask questions"));
         assert!(prompt.contains("do the thing"));
-        // The duplicated, truncated title must not appear: it read as a contradiction.
-        assert!(!prompt.contains("Task:"));
+        assert!(prompt.contains("Expected paths: src/api"));
     }
 }

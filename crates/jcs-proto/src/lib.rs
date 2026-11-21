@@ -4,7 +4,7 @@
 //! version instead of misinterpreting them. All types are plain JSON; the event stream
 //! is newline-delimited JSON with the same [`EventDto`] shape as the REST responses.
 
-use jiff::Timestamp;
+pub use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 pub mod paths;
@@ -66,6 +66,12 @@ pub struct ProjectView {
     pub root_path: String,
     pub base_branch: String,
     pub created_at: Timestamp,
+    /// Whether succeeded tasks are merged into `base_branch` automatically.
+    pub auto_merge: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget_usd_per_day: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget_tokens_per_day: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +81,16 @@ pub struct AddProjectRequest {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_branch: Option<String>,
+}
+
+/// Full replacement of a project's execution settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectSettings {
+    pub auto_merge: bool,
+    #[serde(default)]
+    pub budget_usd_per_day: Option<f64>,
+    #[serde(default)]
+    pub budget_tokens_per_day: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,17 +127,40 @@ pub struct AskRequest {
     pub agent: Option<String>,
     #[serde(default)]
     pub permissions: PermissionMode,
-    /// Title override for the created task.
+    /// Title override for the created task (only used with `plan = false`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Decompose the objective into a task DAG. On by default.
+    #[serde(default = "default_true")]
+    pub plan: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AskResponse {
     pub goal_id: String,
-    pub task_id: String,
-    pub run_id: String,
-    pub task_status: String,
+    /// Whether the daemon will plan the goal before executing it.
+    pub planned: bool,
+    /// Present only for a single-task (`plan = false`) objective.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GoalDetailResponse {
+    pub goal: GoalView,
+    pub tasks: Vec<TaskView>,
+    pub runs: Vec<RunView>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GoalActionResponse {
+    pub ok: bool,
+    pub goal_id: String,
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,6 +185,9 @@ pub struct TaskView {
     pub branch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// Task ids this task waits for.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub depends_on: Vec<String>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }

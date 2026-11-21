@@ -7,8 +7,12 @@ mod config;
 mod error;
 mod executor;
 mod http;
+mod merge;
+mod planner;
+mod scheduler;
 mod state;
 mod uds;
+mod verify;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -163,7 +167,13 @@ async fn main() -> Result<()> {
         "starting jcsd"
     );
 
+    // The scheduler is the only component that dispatches work. It resumes whatever the
+    // previous process left pending, using durable state only.
+    let scheduler = scheduler::spawn(state.clone());
+
     let result = uds::serve(state.clone(), config.socket_path.clone(), shutdown_signal()).await;
+
+    scheduler.abort();
 
     http::record_lifecycle(
         &state,

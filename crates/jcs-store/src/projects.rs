@@ -13,6 +13,9 @@ struct ProjectRow {
     root_path: String,
     base_branch: String,
     created_at: String,
+    auto_merge: i64,
+    budget_usd_per_day: Option<f64>,
+    budget_tokens_per_day: Option<i64>,
 }
 
 impl ProjectRow {
@@ -23,6 +26,9 @@ impl ProjectRow {
             root_path: PathBuf::from(self.root_path),
             base_branch: self.base_branch,
             created_at: crate::store::decode_ts(&self.created_at)?,
+            auto_merge: self.auto_merge != 0,
+            budget_usd_per_day: self.budget_usd_per_day,
+            budget_tokens_per_day: self.budget_tokens_per_day,
         })
     }
 }
@@ -33,14 +39,19 @@ impl Store {
         let mut tx = self.pool().begin().await?;
 
         let inserted = sqlx::query(
-            "INSERT INTO projects (id, name, root_path, base_branch, created_at) \
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO projects \
+             (id, name, root_path, base_branch, created_at, auto_merge, \
+              budget_usd_per_day, budget_tokens_per_day) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(project.id.as_str())
         .bind(&project.name)
         .bind(project.root_path.to_string_lossy().to_string())
         .bind(&project.base_branch)
         .bind(crate::store::encode_ts(project.created_at))
+        .bind(i64::from(project.auto_merge))
+        .bind(project.budget_usd_per_day)
+        .bind(project.budget_tokens_per_day)
         .execute(&mut *tx)
         .await;
 
@@ -70,7 +81,8 @@ impl Store {
 
     pub async fn list_projects(&self) -> Result<Vec<Project>> {
         let rows: Vec<ProjectRow> = sqlx::query_as(
-            "SELECT id, name, root_path, base_branch, created_at FROM projects ORDER BY name",
+            "SELECT id, name, root_path, base_branch, created_at, auto_merge, \
+                    budget_usd_per_day, budget_tokens_per_day FROM projects ORDER BY name",
         )
         .fetch_all(self.pool())
         .await?;
@@ -80,7 +92,8 @@ impl Store {
 
     pub async fn get_project(&self, id: &ProjectId) -> Result<Option<Project>> {
         let row: Option<ProjectRow> = sqlx::query_as(
-            "SELECT id, name, root_path, base_branch, created_at FROM projects WHERE id = ?",
+            "SELECT id, name, root_path, base_branch, created_at, auto_merge, \
+                    budget_usd_per_day, budget_tokens_per_day FROM projects WHERE id = ?",
         )
         .bind(id.as_str())
         .fetch_optional(self.pool())
@@ -102,7 +115,8 @@ impl Store {
 
     pub async fn find_project_by_name(&self, name: &str) -> Result<Option<Project>> {
         let row: Option<ProjectRow> = sqlx::query_as(
-            "SELECT id, name, root_path, base_branch, created_at FROM projects WHERE name = ?",
+            "SELECT id, name, root_path, base_branch, created_at, auto_merge, \
+                    budget_usd_per_day, budget_tokens_per_day FROM projects WHERE name = ?",
         )
         .bind(name)
         .fetch_optional(self.pool())
@@ -113,7 +127,8 @@ impl Store {
 
     pub async fn find_project_by_path(&self, path: &str) -> Result<Option<Project>> {
         let row: Option<ProjectRow> = sqlx::query_as(
-            "SELECT id, name, root_path, base_branch, created_at FROM projects WHERE root_path = ?",
+            "SELECT id, name, root_path, base_branch, created_at, auto_merge, \
+                    budget_usd_per_day, budget_tokens_per_day FROM projects WHERE root_path = ?",
         )
         .bind(path)
         .fetch_optional(self.pool())
@@ -141,6 +156,31 @@ impl Store {
         crate::store::insert_event(&mut tx, &event).await?;
 
         tx.commit().await?;
+        Ok(())
+    }
+
+    /// Replaces the project's execution settings (auto-merge and daily budgets).
+    pub async fn update_project_settings(
+        &self,
+        id: &ProjectId,
+        auto_merge: bool,
+        budget_usd_per_day: Option<f64>,
+        budget_tokens_per_day: Option<i64>,
+    ) -> Result<()> {
+        let result = sqlx::query(
+            "UPDATE projects SET auto_merge = ?, budget_usd_per_day = ?, \
+             budget_tokens_per_day = ? WHERE id = ?",
+        )
+        .bind(i64::from(auto_merge))
+        .bind(budget_usd_per_day)
+        .bind(budget_tokens_per_day)
+        .bind(id.as_str())
+        .execute(self.pool())
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(StoreError::not_found("project", id));
+        }
         Ok(())
     }
 

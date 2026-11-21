@@ -56,6 +56,7 @@ event_kinds! {
     // goals
     GoalCreated => "goal_created",
     GoalStatusChanged => "goal_status_changed",
+    PlanCreated => "plan_created",
 
     // tasks
     TaskCreated => "task_created",

@@ -15,7 +15,9 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use bytes::Bytes;
 use futures_util::stream;
-use jcs_core::{EventKind, NewEvent, Project, ProjectId, RunStatus, StatusMachine, TaskStatus};
+use jcs_core::{
+    EventKind, Goal, GoalStatus, NewEvent, Project, ProjectId, RunStatus, StatusMachine, TaskStatus,
+};
 use jcs_proto::{
     AddProjectRequest, AskRequest, AskResponse, ErrorBody, GateOutcomeView, GateRunRequest,
     GateRunResponse, GateView, GoalView, HealthResponse, PackCatalogEntry, PolicyGateView,
@@ -27,7 +29,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::error::{ApiError, ApiResult};
-use crate::executor::{self, TaskRequest};
+
 use crate::state::AppState;
 
 const LIST_LIMIT: i64 = 50;
@@ -37,7 +39,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/status", get(status))
         .route("/projects", get(list_projects).post(add_project))
-        .route("/projects/{id}", delete(remove_project))
+        .route("/projects/{id}", delete(remove_project).put(update_project))
         .route("/goals", get(list_goals))
         .route("/tasks", get(list_tasks))
         .route("/runs", get(list_runs))
@@ -51,6 +53,8 @@ pub fn router(state: AppState) -> Router {
         .route("/policy/render", post(render_policy))
         .route("/gates", get(gates))
         .route("/gates/run", post(run_gates))
+        .route("/goals/{id}", get(goal_detail))
+        .route("/goals/{id}/resume", post(resume_goal))
         .layer(middleware::from_fn(protocol_guard))
         .with_state(state)
 }
@@ -224,9 +228,57 @@ async fn add_project(
         root_path: root,
         base_branch,
         created_at: jiff::Timestamp::now(),
+        auto_merge: false,
+        budget_usd_per_day: None,
+        budget_tokens_per_day: None,
     };
 
     state.store.insert_project(&project).await?;
+    Ok(Json(ProjectResponse {
+        project: project_view(&project),
+    }))
+}
+
+async fn update_project(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(settings): Json<jcs_proto::ProjectSettings>,
+) -> ApiResult<Json<ProjectResponse>> {
+    let id = ProjectId::parse(id)?;
+
+    if let Some(budget) = settings.budget_usd_per_day {
+        if budget < 0.0 || !budget.is_finite() {
+            return Err(ApiError::bad_request(
+                "invalid_budget",
+                "budget_usd_per_day must be a finite, non-negative number",
+            ));
+        }
+    }
+    if let Some(tokens) = settings.budget_tokens_per_day {
+        if tokens < 0 {
+            return Err(ApiError::bad_request(
+                "invalid_budget",
+                "budget_tokens_per_day must be non-negative",
+            ));
+        }
+    }
+
+    state
+        .store
+        .update_project_settings(
+            &id,
+            settings.auto_merge,
+            settings.budget_usd_per_day,
+            settings.budget_tokens_per_day,
+        )
+        .await?;
+
+    let project = state
+        .store
+        .get_project(&id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("project_not_found", format!("no project {id}")))?;
+
     Ok(Json(ProjectResponse {
         project: project_view(&project),
     }))
@@ -289,19 +341,7 @@ async fn ask(
     State(state): State<AppState>,
     Json(request): Json<AskRequest>,
 ) -> ApiResult<Json<AskResponse>> {
-    let project = state
-        .store
-        .resolve_project(&request.project)
-        .await?
-        .ok_or_else(|| {
-            ApiError::not_found(
-                "project_not_found",
-                format!(
-                    "no project matches {:?}; run `jcs project list` or `jcs project add <path>`",
-                    request.project
-                ),
-            )
-        })?;
+    let project = resolve_project(&state, &request.project).await?;
 
     // Fail before creating state if the repository is not usable.
     let repo = jcs_git::Repo::new(&project.root_path);
@@ -312,35 +352,93 @@ async fn ask(
         )
     })?;
 
+    let permissions = match request.permissions {
+        jcs_proto::PermissionMode::Strict => "strict",
+        jcs_proto::PermissionMode::Auto => "auto",
+    };
+
+    let goal = state
+        .store
+        .create_goal_with_settings(
+            &project.id,
+            &request.prompt,
+            request.model.as_deref(),
+            request.agent.as_deref(),
+            permissions,
+        )
+        .await?;
+
+    if request.plan {
+        spawn_planning(state.clone(), goal.clone(), project.clone());
+        return Ok(Json(AskResponse {
+            goal_id: goal.id.to_string(),
+            planned: true,
+            task_id: None,
+        }));
+    }
+
+    // Single-task mode: the scheduler still dispatches it, so the lease and budget
+    // rules apply to it exactly as they do to planned tasks.
     let title = request
         .title
         .filter(|title| !title.trim().is_empty())
         .unwrap_or_else(|| first_line(&request.prompt, 80));
-
-    let goal = state
-        .store
-        .create_goal(&project.id, &request.prompt)
-        .await?;
     let task = state.store.create_task(&goal.id, &title).await?;
-    let run = state.store.start_run(&task.id).await?;
-
-    executor::spawn(
-        state.clone(),
-        TaskRequest {
-            task_id: task.id.clone(),
-            run_id: run.id.clone(),
-            model: request.model,
-            agent: request.agent,
-            permissions: request.permissions,
-        },
-    );
 
     Ok(Json(AskResponse {
         goal_id: goal.id.to_string(),
-        task_id: task.id.to_string(),
-        run_id: run.id.to_string(),
-        task_status: task.status.as_str().to_string(),
+        planned: false,
+        task_id: Some(task.id.to_string()),
     }))
+}
+
+/// Runs the planner in the background so the client is not held for a model call.
+fn spawn_planning(state: AppState, goal: Goal, project: Project) {
+    tokio::spawn(async move {
+        match crate::planner::plan_goal(&state, &goal, &project).await {
+            Ok(plan) => {
+                let raw = serde_json::to_string(&plan).unwrap_or_default();
+                if let Err(error) = state
+                    .store
+                    .create_planned_tasks(&goal.id, &plan, &raw)
+                    .await
+                {
+                    fail_planning(&state, &goal, &format!("{error:#}")).await;
+                } else {
+                    tracing::info!(
+                        goal = %goal.id,
+                        tasks = plan.tasks.len(),
+                        "goal planned"
+                    );
+                }
+            }
+            Err(error) => fail_planning(&state, &goal, &format!("{error:#}")).await,
+        }
+    });
+}
+
+async fn fail_planning(state: &AppState, goal: &Goal, reason: &str) {
+    tracing::error!(goal = %goal.id, reason, "planning failed");
+
+    if let Err(error) = state
+        .store
+        .set_goal_status(&goal.id, GoalStatus::Failed)
+        .await
+    {
+        tracing::warn!(error = %error, "cannot mark the goal as failed");
+    }
+
+    let event = NewEvent::new(EventKind::Error)
+        .project(&goal.project_id)
+        .goal(&goal.id)
+        .payload(json!({
+            "category": "planning_failed",
+            "reason": reason,
+            "hint": "the objective was not decomposed; run it with `jcs ask --no-plan`                      to execute it as a single task",
+        }));
+    if let Err(error) = jcs_store::append_event(&state.store, event).await {
+        tracing::warn!(error = %error, "cannot record the planning failure");
+    }
 }
 
 async fn abort(
@@ -631,6 +729,72 @@ async fn run_gates(
     }))
 }
 
+async fn goal_detail(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<jcs_proto::GoalDetailResponse>> {
+    let goal_id = jcs_core::GoalId::parse(id)?;
+    let goal = state
+        .store
+        .get_goal(&goal_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("goal_not_found", format!("no goal {goal_id}")))?;
+
+    let tasks = state.store.list_tasks_by_goal(&goal_id).await?;
+    let mut runs = Vec::new();
+    let mut views = Vec::with_capacity(tasks.len());
+    for task in &tasks {
+        let mut view = task_view(task);
+        view.depends_on = state
+            .store
+            .task_dependencies(&task.id)
+            .await?
+            .iter()
+            .map(|id| id.to_string())
+            .collect();
+        views.push(view);
+        runs.extend(state.store.list_runs_by_task(&task.id).await?);
+    }
+    runs.sort_by_key(|run| std::cmp::Reverse(run.started_at));
+
+    Ok(Json(jcs_proto::GoalDetailResponse {
+        goal: goal_view(&goal),
+        tasks: views,
+        runs: runs.iter().map(run_view).collect(),
+    }))
+}
+
+async fn resume_goal(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<jcs_proto::GoalActionResponse>> {
+    let goal_id = jcs_core::GoalId::parse(id)?;
+    let goal = state
+        .store
+        .get_goal(&goal_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("goal_not_found", format!("no goal {goal_id}")))?;
+
+    if goal.status != GoalStatus::Blocked {
+        return Err(ApiError::conflict(
+            "goal_not_blocked",
+            format!("goal {goal_id} is {}, not blocked", goal.status.as_str()),
+        ));
+    }
+
+    state.store.clear_goal_merge_errors(&goal_id).await?;
+    state
+        .store
+        .set_goal_status(&goal_id, GoalStatus::Running)
+        .await?;
+
+    Ok(Json(jcs_proto::GoalActionResponse {
+        ok: true,
+        goal_id: goal_id.to_string(),
+        status: GoalStatus::Running.as_str().to_string(),
+    }))
+}
+
 #[derive(Debug, Deserialize)]
 struct EventsQuery {
     #[serde(default)]
@@ -709,6 +873,9 @@ fn project_view(project: &Project) -> ProjectView {
         root_path: project.root_path.to_string_lossy().to_string(),
         base_branch: project.base_branch.clone(),
         created_at: project.created_at,
+        auto_merge: project.auto_merge,
+        budget_usd_per_day: project.budget_usd_per_day,
+        budget_tokens_per_day: project.budget_tokens_per_day,
     }
 }
 
@@ -735,6 +902,7 @@ fn task_view(task: &jcs_core::Task) -> TaskView {
             .map(|path| path.to_string_lossy().to_string()),
         branch: task.branch.clone(),
         session_id: task.session_id.clone(),
+        depends_on: Vec::new(),
         created_at: task.created_at,
         updated_at: task.updated_at,
     }
@@ -784,6 +952,10 @@ mod tests {
             packs_dir: None,
             default_packs: Vec::new(),
             max_repair_cycles: 0,
+            planning_model: None,
+            planning_agent: None,
+            lease_ttl_secs: 90,
+            heartbeat_secs: 20,
         });
         AppState::new(
             store,

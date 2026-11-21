@@ -59,6 +59,8 @@ clap = { version = "4", features = ["derive", "env"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 dirs = "5"
+libc = "0.2"
+ratatui = "0.30"
 
 # ---- dev ----
 proptest = "1"

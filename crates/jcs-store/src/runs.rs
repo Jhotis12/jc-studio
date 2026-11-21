@@ -269,6 +269,27 @@ impl Store {
         Ok(stale.len())
     }
 
+    /// Spend and tokens for one project since a moment, used by daily budgets.
+    pub async fn usage_since(
+        &self,
+        project_id: &jcs_core::ProjectId,
+        since: jiff::Timestamp,
+    ) -> Result<(f64, i64)> {
+        let row: Option<(Option<f64>, Option<i64>)> = sqlx::query_as(
+            "SELECT SUM(r.cost_usd), SUM(r.tokens_in + r.tokens_out) FROM runs r \
+             JOIN tasks t ON t.id = r.task_id \
+             JOIN goals g ON g.id = t.goal_id \
+             WHERE g.project_id = ? AND r.started_at >= ?",
+        )
+        .bind(project_id.as_str())
+        .bind(crate::store::encode_ts(since))
+        .fetch_optional(self.pool())
+        .await?;
+
+        let (cost, tokens) = row.unwrap_or((None, None));
+        Ok((cost.unwrap_or(0.0), tokens.unwrap_or(0)))
+    }
+
     /// Total spend in US dollars, optionally scoped to one project.
     pub async fn total_cost_usd(&self, project_id: Option<&jcs_core::ProjectId>) -> Result<f64> {
         let total: Option<f64> = match project_id {

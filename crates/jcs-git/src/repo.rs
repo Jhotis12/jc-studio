@@ -248,6 +248,59 @@ impl Repo {
         Ok(worktrees)
     }
 
+    /// Creates a branch at `base` without checking it out.
+    pub async fn create_branch(&self, branch: &str, base: &str) -> Result<()> {
+        self.must_git(&["branch", branch, base]).await?;
+        Ok(())
+    }
+
+    /// Adds a worktree checking out an existing branch.
+    pub async fn add_worktree(&self, path: &Path, branch: &str) -> Result<()> {
+        if path.exists() {
+            return Err(GitError::Refused(format!(
+                "worktree path {} already exists",
+                path.display()
+            )));
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        self.must_git(&["worktree", "add", &path.to_string_lossy(), branch])
+            .await?;
+        Ok(())
+    }
+
+    /// Replays the current branch on top of `upstream`.
+    pub async fn rebase_onto(&self, upstream: &str) -> Result<()> {
+        self.must_git(&["rebase", upstream]).await?;
+        Ok(())
+    }
+
+    /// Aborts an in-progress rebase. Best effort: used after a conflict was detected.
+    pub async fn rebase_abort(&self) -> Result<()> {
+        let output = self.git(&["rebase", "--abort"]).await?;
+        if !output.status.success() {
+            tracing::debug!("no rebase to abort");
+        }
+        Ok(())
+    }
+
+    /// Whether `ancestor` is reachable from `descendant`.
+    pub async fn is_ancestor(&self, ancestor: &str, descendant: &str) -> Result<bool> {
+        let output = self
+            .git(&["merge-base", "--is-ancestor", ancestor, descendant])
+            .await?;
+        match output.status.code() {
+            Some(0) => Ok(true),
+            Some(1) => Ok(false),
+            _ => Err(GitError::command_failed(
+                "git merge-base --is-ancestor",
+                output.status.code(),
+                &String::from_utf8_lossy(&output.stderr),
+            )),
+        }
+    }
+
     pub async fn branch_exists(&self, branch: &str) -> Result<bool> {
         let reference = format!("refs/heads/{branch}");
         let output = self

@@ -7,7 +7,7 @@ use crate::store::Store;
 use jcs_core::{EventKind, GoalId, NewEvent, ProjectId, StatusMachine, Task, TaskId, TaskStatus};
 
 #[derive(Debug, FromRow)]
-struct TaskRow {
+pub(crate) struct TaskRow {
     id: String,
     goal_id: String,
     title: String,
@@ -15,12 +15,15 @@ struct TaskRow {
     worktree: Option<String>,
     branch: Option<String>,
     session_id: Option<String>,
+    role: String,
+    priority: i64,
+    path_claims: String,
     created_at: String,
     updated_at: String,
 }
 
 impl TaskRow {
-    fn into_domain(self) -> Result<Task> {
+    pub(crate) fn into_domain(self) -> Result<Task> {
         Ok(Task {
             id: TaskId::parse(self.id)?,
             goal_id: GoalId::parse(self.goal_id)?,
@@ -29,6 +32,9 @@ impl TaskRow {
             worktree: self.worktree.map(PathBuf::from),
             branch: self.branch,
             session_id: self.session_id,
+            role: jcs_core::TaskRole::parse(&self.role)?,
+            priority: self.priority as i32,
+            path_claims: serde_json::from_str(&self.path_claims)?,
             created_at: crate::store::decode_ts(&self.created_at)?,
             updated_at: crate::store::decode_ts(&self.updated_at)?,
         })
@@ -37,7 +43,7 @@ impl TaskRow {
 
 macro_rules! task_columns {
     () => {
-        "id, goal_id, title, status, worktree, branch, session_id, created_at, updated_at"
+        "id, goal_id, title, status, worktree, branch, session_id, role, priority,          path_claims, created_at, updated_at"
     };
 }
 
@@ -63,6 +69,9 @@ impl Store {
             worktree: None,
             branch: None,
             session_id: None,
+            role: jcs_core::TaskRole::Implement,
+            priority: 0,
+            path_claims: Vec::new(),
             created_at: now,
             updated_at: now,
         };

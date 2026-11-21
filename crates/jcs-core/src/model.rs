@@ -4,6 +4,7 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{GoalId, ProjectId, RunId, TaskId};
+use crate::plan::TaskRole;
 use crate::status::{GoalStatus, RunStatus, TaskStatus};
 
 /// A registered git repository that JC Studio can work on.
@@ -15,6 +16,12 @@ pub struct Project {
     /// Branch new task worktrees are cut from.
     pub base_branch: String,
     pub created_at: Timestamp,
+    /// When true, succeeded tasks are merged into `base_branch` by the merge queue.
+    pub auto_merge: bool,
+    /// Daily spend ceiling. `None` means unbounded.
+    pub budget_usd_per_day: Option<f64>,
+    /// Daily token ceiling. `None` means unbounded.
+    pub budget_tokens_per_day: Option<i64>,
 }
 
 /// A user objective, decomposed (eventually) into tasks.
@@ -41,6 +48,13 @@ pub struct Task {
     pub branch: Option<String>,
     /// OpenCode session bound to this task.
     pub session_id: Option<String>,
+    /// What the task is for; shaped into the prompt and used in diagnostics.
+    pub role: TaskRole,
+    /// Higher runs first among ready tasks.
+    pub priority: i32,
+    /// Repository-relative paths this task expects to touch. The scheduler refuses to run
+    /// two tasks whose claims overlap.
+    pub path_claims: Vec<String>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }
