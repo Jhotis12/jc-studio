@@ -62,6 +62,10 @@ Un commit no debe mezclar refactor y cambio de comportamiento: eso hace el rever
   modelo gratuito por defecto (`JCS_E2E_MODEL` para cambiarlo).
 - **Política y reparación**: `just e2e-policy` — un gate exige un token que el objetivo no
   menciona; el run solo puede terminar en verde si el bucle de reparación se ejecutó.
+- **Descomposición**: `just e2e-plan` — el objetivo se convierte en un DAG de ≥2 tareas con
+  dependencias, todas terminan y todos los entregables existen.
+- **Integración**: `just e2e-merge` — DAG + rama de integración + promoción a la base, sin
+  ramas `jcs/*` al final.
 - **Durabilidad**: `just chaos` — `kill -9` a mitad de run, reinicio, y verificación de
   `interrupted` + `blocked`, cero commits parciales y un run posterior correcto.
 

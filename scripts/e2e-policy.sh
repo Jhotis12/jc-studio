@@ -116,7 +116,7 @@ grep -q "must contain exactly" "$WORK/gates-before.txt" || {
 
 step "ask: the agent must satisfy the gate, not the wording of the objective"
 "${JCS[@]}" ask -p policy "Create a file MARKER.txt containing a short greeting." \
-    --model "$MODEL" > "$WORK/ask.txt" 2>&1 || {
+    --no-plan --model "$MODEL" > "$WORK/ask.txt" 2>&1 || {
     cat "$WORK/ask.txt"
     fail "the run did not succeed"
 }

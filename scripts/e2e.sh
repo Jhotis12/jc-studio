@@ -75,7 +75,7 @@ step "ask"
 "${JCS[@]}" ask -p e2e \
     "Create a file named HELLO.md whose only content is the exact text JCS_E2E_OK \
 (no punctuation, no extra lines). Do not use shell commands." \
-    --model "$MODEL" > "$WORK/ask.txt" 2>&1 || {
+    --no-plan --model "$MODEL" > "$WORK/ask.txt" 2>&1 || {
     cat "$WORK/ask.txt"
     fail "ask did not succeed"
 }

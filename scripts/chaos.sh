@@ -72,7 +72,7 @@ step "start, launch a run, kill -9 mid-flight"
 start_daemon
 "${JCS[@]}" project add "$WORK/repo" --name chaos > /dev/null
 "${JCS[@]}" ask -p chaos "Create NOTES.md with the single line: written during the chaos test." \
-    --model "$MODEL" --detach > /dev/null
+    --no-plan --model "$MODEL" --detach > /dev/null
 sleep 4
 kill -9 "$DAEMON_PID"
 wait "$DAEMON_PID" 2>/dev/null || true

@@ -47,6 +47,14 @@ e2e:
 e2e-policy:
     ./scripts/e2e-policy.sh
 
+# Goal decomposition and DAG execution
+e2e-plan:
+    ./scripts/e2e-plan.sh
+
+# DAG + integration branch + promotion into the base branch
+e2e-merge:
+    ./scripts/e2e-merge.sh
+
 # Kill the daemon mid-run and verify honest recovery
 chaos:
     ./scripts/chaos.sh
