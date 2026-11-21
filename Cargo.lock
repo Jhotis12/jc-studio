@@ -1344,6 +1344,7 @@ dependencies = [
  "jcs-proto",
  "jcs-store",
  "jiff",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",
