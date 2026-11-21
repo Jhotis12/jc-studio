@@ -55,8 +55,14 @@ Una pregunta **no** deja la sesión colgada: se cancela el form y la tarea se ap
 ```bash
 rustup show                      # instala la toolchain pinneada
 cargo build --release
+
+# opción A: usar los binarios del árbol
 ./target/release/jcsd --help
 ./target/release/jcs --help
+
+# opción B: instalarlos en ~/.cargo/bin (lo que asume la unidad systemd)
+cargo install --path crates/jcs-daemon
+cargo install --path crates/jcs-cli
 ```
 
 ## Uso
