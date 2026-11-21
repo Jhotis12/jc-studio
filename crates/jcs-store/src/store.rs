@@ -172,6 +172,13 @@ pub(crate) fn encode_ts(ts: Timestamp) -> String {
     Event::encode_ts(ts)
 }
 
+/// Encodes a timestamp in the storage format.
+///
+/// Public so crates writing to the same database cannot invent a second format.
+pub fn encode_timestamp(ts: Timestamp) -> String {
+    Event::encode_ts(ts)
+}
+
 /// SQLite reports unique-constraint violations with these extended result codes.
 pub(crate) fn is_unique_violation(error: &dyn sqlx::error::DatabaseError) -> bool {
     matches!(error.code().as_deref(), Some("2067") | Some("1555"))
