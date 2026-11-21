@@ -750,9 +750,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/board.rs": {
-    "mtime": 1795304580.1414022,
-    "seen": 1795304741.5181875,
-    "ast_hash": "6d4c5c151f94d3aa41c75ee744acd522",
+    "mtime": 1795304894.2541196,
+    "seen": 1795304921.0499659,
+    "ast_hash": "1bd776861857fbc5b6841a9f2096a669",
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/details.rs": {
