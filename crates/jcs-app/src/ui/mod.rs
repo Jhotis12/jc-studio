@@ -88,7 +88,11 @@ fn top_bar(context: &egui::Context, app: &mut Studio) {
                             RichText::new(format!("${:.4}", app.state.totals.cost_usd)).strong(),
                         ),
                     )
-                    .on_hover_text("coste acumulado de todos los proyectos");
+                    .on_hover_text(
+                        "coste de los runs de tareas, calculado con el catálogo si el \
+                             backend reporta 0; el planificador y el revisor aún no se \
+                             contabilizan",
+                    );
                 });
             });
         });

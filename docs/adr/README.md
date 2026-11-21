@@ -22,6 +22,7 @@ nunca se renumera; si una decisión cambia, se escribe uno nuevo y el anterior p
 | [0011](0011-multi-goal-scheduling.md) | Varios objetivos a la vez: reparto justo, claims y SQLite de un escritor | Accepted |
 | [0012](0012-secrets-outside-sqlite.md) | Secretos en archivo 0600, fuera de SQLite y de la API | Accepted |
 | [0013](0013-stage-progress-and-iteration.md) | Progreso por etapas y tareas iterables con feedback | Accepted |
+| [0014](0014-cost-from-catalog.md) | Coste calculado desde el catálogo cuando el backend reporta cero | Accepted |
 
 ## Cómo añadir una ADR
 

@@ -144,6 +144,14 @@ comando largo dentro de una terminal.
 Si la app no abre: comprueba que hay sesión gráfica (`WAYLAND_DISPLAY` o `DISPLAY`) y que
 `jc-studio` está en el `PATH`. Si abre pero no conecta, revisa `jcs doctor`.
 
+## Coste
+
+El total de la app sale de los runs de tareas. OpenCode a veces devuelve `cost: 0` aunque haya
+tokens (suscripción, créditos o proveedor sin precio); en ese caso el daemon calcula el coste
+con el precio por millón del catálogo y los tokens, y guarda el modelo en el run. Al arrancar,
+un backfill corrige los runs antiguos. Los modelos gratuitos quedan en $0. El planificador y
+el revisor todavía no se contabilizan en el total.
+
 ## Configuración
 
 La app es la vía normal. Las variables de entorno siguen existiendo como valor inicial y

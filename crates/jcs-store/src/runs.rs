@@ -104,6 +104,52 @@ impl Store {
     ///
     /// Absolute rather than additive on purpose: agent backends report running totals,
     /// and adding those up would double-count every event.
+    /// Records the model and its catalog rates, so a run can be priced from tokens when the
+    /// backend reports a zero cost.
+    pub async fn set_run_model(
+        &self,
+        run_id: &RunId,
+        model: &str,
+        cost_input_per_mtok: f64,
+        cost_output_per_mtok: f64,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE runs SET model = ?, cost_input_per_mtok = ?, \
+             cost_output_per_mtok = ? WHERE id = ?",
+        )
+        .bind(model)
+        .bind(cost_input_per_mtok)
+        .bind(cost_output_per_mtok)
+        .bind(run_id.as_str())
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Runs with tokens but no recorded cost, joined with the goal's model for a backfill.
+    pub async fn runs_without_cost(&self) -> Result<Vec<(String, String, i64, i64)>> {
+        let rows: Vec<(String, String, i64, i64)> = sqlx::query_as(
+            "SELECT r.id, g.model, r.tokens_in, r.tokens_out \
+             FROM runs r \
+             JOIN tasks t ON t.id = r.task_id \
+             JOIN goals g ON g.id = t.goal_id \
+             WHERE r.cost_usd = 0 AND (r.tokens_in > 0 OR r.tokens_out > 0) \
+               AND g.model IS NOT NULL",
+        )
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn set_run_cost(&self, run_id: &RunId, cost_usd: f64) -> Result<()> {
+        sqlx::query("UPDATE runs SET cost_usd = ? WHERE id = ?")
+            .bind(cost_usd.max(0.0))
+            .bind(run_id.as_str())
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
     pub async fn set_run_usage(
         &self,
         run_id: &RunId,
@@ -111,11 +157,25 @@ impl Store {
         tokens_in: i64,
         tokens_out: i64,
     ) -> Result<()> {
+        // Trust a positive reported cost. When the backend says zero (subscription,
+        // credits, provider without pricing), compute it from the catalog rates stored on
+        // the run. A free model has rates 0, so it stays at zero.
+        let (input_rate, output_rate): (f64, f64) = sqlx::query_as(
+            "SELECT cost_input_per_mtok, cost_output_per_mtok FROM runs WHERE id = ?",
+        )
+        .bind(run_id.as_str())
+        .fetch_one(self.pool())
+        .await?;
+        let computed = (tokens_in.max(0) as f64 * input_rate
+            + tokens_out.max(0) as f64 * output_rate)
+            / 1_000_000.0;
+        let cost = if cost_usd > 0.0 { cost_usd } else { computed };
+
         sqlx::query(
             "UPDATE runs SET cost_usd = ?, tokens_in = ?, tokens_out = ? \
              WHERE id = ? AND status = 'started'",
         )
-        .bind(cost_usd.max(0.0))
+        .bind(cost.max(0.0))
         .bind(tokens_in.max(0))
         .bind(tokens_out.max(0))
         .bind(run_id.as_str())
@@ -421,4 +481,76 @@ fn truncate_chars(value: &str, max: usize) -> String {
     let mut out: String = value.chars().take(max).collect();
     out.push_str("\n… (truncated)");
     out
+}
+
+#[cfg(test)]
+mod pricing_tests {
+    use super::*;
+    use jcs_core::{GoalStatus, Project, ProjectId};
+
+    #[tokio::test]
+    async fn a_zero_reported_cost_is_computed_from_the_stored_rates() {
+        let store = Store::in_memory().await.unwrap();
+        let project = Project {
+            id: ProjectId::new(),
+            name: "pricing".to_string(),
+            root_path: std::env::temp_dir().join("jcs-pricing"),
+            base_branch: "main".to_string(),
+            created_at: jiff::Timestamp::now(),
+            auto_merge: false,
+            budget_usd_per_day: None,
+            budget_tokens_per_day: None,
+        };
+        store.insert_project(&project).await.unwrap();
+        let goal = store
+            .create_goal_with_settings(&project.id, "objective", None, None, "auto")
+            .await
+            .unwrap();
+        assert_ne!(goal.status, GoalStatus::Succeeded);
+        let task = store.create_task(&goal.id, "task").await.unwrap();
+        let run = store.start_run(&task.id).await.unwrap();
+
+        store
+            .set_run_model(&run.id, "provider/model", 1.0, 2.0)
+            .await
+            .unwrap();
+        store
+            .set_run_usage(&run.id, 0.0, 1_000_000, 500_000)
+            .await
+            .unwrap();
+
+        let stored = store.get_run(&run.id).await.unwrap().unwrap();
+        assert!((stored.cost_usd - 2.0).abs() < f64::EPSILON);
+        assert_eq!(stored.tokens_in, 1_000_000);
+        assert_eq!(stored.tokens_out, 500_000);
+    }
+
+    #[tokio::test]
+    async fn a_positive_reported_cost_is_kept() {
+        let store = Store::in_memory().await.unwrap();
+        let project = Project {
+            id: ProjectId::new(),
+            name: "pricing".to_string(),
+            root_path: std::env::temp_dir().join("jcs-pricing-2"),
+            base_branch: "main".to_string(),
+            created_at: jiff::Timestamp::now(),
+            auto_merge: false,
+            budget_usd_per_day: None,
+            budget_tokens_per_day: None,
+        };
+        store.insert_project(&project).await.unwrap();
+        let goal = store
+            .create_goal_with_settings(&project.id, "objective", None, None, "auto")
+            .await
+            .unwrap();
+        let task = store.create_task(&goal.id, "task").await.unwrap();
+        let run = store.start_run(&task.id).await.unwrap();
+        store
+            .set_run_model(&run.id, "provider/model", 100.0, 100.0)
+            .await
+            .unwrap();
+        store.set_run_usage(&run.id, 0.25, 10, 10).await.unwrap();
+        let stored = store.get_run(&run.id).await.unwrap().unwrap();
+        assert!((stored.cost_usd - 0.25).abs() < f64::EPSILON);
+    }
 }

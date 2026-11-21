@@ -156,6 +156,27 @@ async fn run_task(state: &AppState, dispatch: &TaskDispatch, guard: &LeaseGuard)
     };
     let agent_name = dispatch.agent.clone().or_else(|| state.default_agent());
 
+    // OpenCode can report cost 0 even when tokens were spent (subscription/credits). Store
+    // the catalog rates on the run so `set_run_usage` can price it from tokens.
+    if let Some(model_ref) = &model {
+        let reference = format!("{}/{}", model_ref.provider_id, model_ref.id);
+        match agent.model_catalog().await {
+            Ok(catalog) => {
+                if let Some(info) = catalog.iter().find(|info| info.reference == reference) {
+                    state
+                        .store
+                        .set_run_model(&run_id, &reference, info.cost_input, info.cost_output)
+                        .await?;
+                } else {
+                    tracing::warn!(model = %reference, "model is not in the catalog; cost cannot be computed");
+                }
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "cannot read the model catalog to price the run");
+            }
+        }
+    }
+
     let session = agent
         .create_session(jcs_agent::CreateSession {
             title: &task.title,

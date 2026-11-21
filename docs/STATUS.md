@@ -126,6 +126,10 @@ El razonamiento y las alternativas están en la [ADR 0010](adr/0010-desktop-app-
       hay merges pendientes, el objetivo pasa a `blocked`/`failed` con `goal_stalled` en vez
       de quedarse `running` para siempre. `ensure_integration_branch` ya no escribe un evento
       por tick.
+- [x] 8.16 Coste real: OpenCode puede reportar `cost: 0` aunque haya tokens. El daemon
+      guarda el precio del catálogo por run (migración 0008) y calcula el coste desde los
+      tokens cuando el backend reporta 0; un backfill al arrancar corrige los runs antiguos.
+      El total de tu proyecto pasó de $0.0000 a **$0.2375** con 1,1 M tokens.
 - [x] 8.15 Iteración de tareas: las instrucciones del plan se guardan (migración 0007) y se
       usan en el prompt; una tarea fallida/bloqueada se reintenta con indicaciones y una
       tarea terminada crea una tarea dependiente de iteración. «Reintentar integración»
@@ -152,7 +156,7 @@ API esté documentada y probada.
 
 | Comando | Qué demuestra |
 |---|---|
-| `cargo nextest run --workspace` | **329 tests** unitarios, de propiedad y de integración |
+| `cargo nextest run --workspace` | **331 tests** unitarios, de propiedad y de integración |
 | `just e2e` | objetivo → worktree → agente → gates → commit |
 | `just e2e-policy` | gate que exige un token: prueba el bucle de reparación |
 | `just e2e-plan` | objetivo → plan → DAG → tareas → entregables |

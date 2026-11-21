@@ -52,3 +52,11 @@ Cada entrada tiene una condición de salida; sin ella, no es una decisión, es u
 - **Gates en secuencia:** más lentos que en paralelo, pero atribuibles y deterministas.
 - **Parsers:** `cargo`, `node`, `coverage` y genérico. `pytest` cae en genérico hasta que
   haya un fixture que justifique un parser propio.
+
+
+## Coste auxiliar
+
+El coste mostrado cubre los runs de cada tarea. Las sesiones del planificador y del revisor
+no tienen un `run` asociado y todavía no se suman al total; para contabilizarlas hace falta
+un registro de uso auxiliar (modelo, tokens y coste por sesión) o consultar su usage al
+cerrar la sesión.

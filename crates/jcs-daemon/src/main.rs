@@ -4,6 +4,7 @@
 //! is the single writer (ADR 0001).
 
 mod config;
+mod costs;
 mod error;
 mod executor;
 mod http;
@@ -178,6 +179,10 @@ async fn main() -> Result<()> {
         // down. Requests that need an agent fail with an actionable message.
         tracing::warn!(reason = %error.message, "agent backend unavailable at startup");
     }
+
+    // Existing runs recorded before pricing was stored still show $0. Price them from the
+    // goal's model and the catalog in the background.
+    costs::spawn_backfill(state.clone());
 
     http::record_lifecycle(
         &state,
