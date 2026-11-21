@@ -13,7 +13,7 @@ pub use model::{
     Finding, GateDef, GateError, GateOutcome, GateSet, OrderedFloat, ParserKind, Severity,
 };
 pub use runner::run;
-pub use secrets::{scan as scan_secrets, ScanOptions, SecretFinding};
+pub use secrets::{scan as scan_secrets, scan_targets, ScanOptions, ScanTarget, SecretFinding};
 
 /// Runs a set of gates sequentially, in name order.
 ///

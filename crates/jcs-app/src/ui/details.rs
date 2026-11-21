@@ -305,6 +305,26 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
             );
         });
 
+        if let Some(activity) = app.state.task_activity(&task.id) {
+            ui.label(
+                RichText::new(format!(
+                    "Ahora: {} · hace {}s",
+                    activity.label(),
+                    activity.age_secs()
+                ))
+                .small()
+                .color(Color32::from_rgb(150, 190, 230)),
+            );
+            if !activity.detail.trim().is_empty() {
+                ui.label(
+                    RichText::new(crate::ui::truncate(&activity.detail, 180))
+                        .small()
+                        .italics()
+                        .weak(),
+                );
+            }
+        }
+
         ui.horizontal_wrapped(|ui| {
             ui.label(
                 RichText::new(crate::daemon::short(&task.id))
@@ -388,6 +408,14 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
                 }
             }
             if let Some(worktree) = &task.worktree {
+                if std::path::Path::new(worktree).exists()
+                    && ui
+                        .small_button("Ver cambios")
+                        .on_hover_text("Abre el worktree de la tarea y su diff contra la base.")
+                        .clicked()
+                {
+                    app.show_task_changes(task.goal_id.clone(), task.id.clone());
+                }
                 if ui
                     .small_button("Terminal en el worktree")
                     .on_hover_text(worktree)

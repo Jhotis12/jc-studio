@@ -234,6 +234,33 @@ fn card(ui: &mut egui::Ui, app: &mut Studio, goal: &GoalView) {
                     );
                 }
             });
+
+            if let Some(task) = tasks
+                .iter()
+                .find(|task| task_progress(task).stage.active())
+            {
+                if let Some(activity) = app.state.task_activity(&task.id) {
+                    ui.add_space(2.0);
+                    ui.label(
+                        RichText::new(format!(
+                            "{} · {} · hace {}s",
+                            crate::ui::truncate(&task.title, 48),
+                            activity.label(),
+                            activity.age_secs()
+                        ))
+                        .small()
+                        .color(Color32::from_rgb(150, 190, 230)),
+                    );
+                    if !activity.detail.trim().is_empty() {
+                        ui.label(
+                            RichText::new(crate::ui::truncate(&activity.detail, 140))
+                                .small()
+                                .italics()
+                                .weak(),
+                        );
+                    }
+                }
+            }
         } else if goal.status == "running" {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("planificando…").weak().small());

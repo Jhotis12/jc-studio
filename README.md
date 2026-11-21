@@ -261,7 +261,8 @@ a él por el mismo socket que el CLI.
   (dependencia, rutas, turno o merge). Objetivos atascados pasan a `blocked` con motivo.
 - Traza del agente: razonamiento, respuesta, herramientas y gates en vivo por tarea.
 - Chat por tarea y del Orquestador: Markdown renderizado, respuesta en streaming cuando el
-  modelo lo permite, pensamiento y herramientas.
+  modelo lo permite, pensamiento, herramientas con nombre/entrada/salida y actividad actual
+  por tarea. La pestaña Código abre el worktree de la tarea y su diff.
 - Skills/MCP: catálogo de OpenCode, activación de skills por sesión y MCP en caliente.
 - Objetivos: cancelar, eliminar y reintentar; filtro por texto y terminados. Iterar una
   tarea con indicaciones, reintentar bloqueadas o volver a intentar un merge.

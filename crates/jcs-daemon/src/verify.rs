@@ -9,7 +9,7 @@ use std::path::Path;
 
 use anyhow::{anyhow, Result};
 use jcs_core::{GateStatus, Project};
-use jcs_gates::{GateOutcome, GateSet, ScanOptions, SecretFinding};
+use jcs_gates::{GateOutcome, GateSet, ScanOptions, ScanTarget, SecretFinding};
 use jcs_memory::BoundaryViolation;
 
 use crate::state::AppState;
@@ -49,13 +49,26 @@ pub async fn evaluate(state: &AppState, project: &Project, worktree: &Path) -> R
 
     let secrets_enabled = compiled.policy.secrets.enabled;
     let secret_findings = if secrets_enabled {
-        jcs_gates::scan_secrets(
-            worktree,
+        // Only what this task wrote can leak a credential. Scanning the whole tree
+        // flagged pre-existing lockfile hashes and model identifiers, and agents then
+        // "fixed" unrelated files to get past the gate.
+        let changed = jcs_git::Repo::new(worktree)
+            .working_changed_lines()
+            .await
+            .map_err(|error| anyhow!("cannot list the task's changed lines: {error}"))?;
+        let targets: Vec<ScanTarget> = changed
+            .into_iter()
+            .map(|change| ScanTarget {
+                path: change.path,
+                lines: change.lines,
+            })
+            .collect();
+        jcs_gates::scan_targets(
+            &targets,
             &ScanOptions {
                 allow_prefixes: compiled.policy.secrets.allow.clone(),
             },
         )
-        .map_err(|error| anyhow!("cannot scan for secrets: {error}"))?
     } else {
         Vec::new()
     };

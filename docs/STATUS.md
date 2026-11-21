@@ -20,9 +20,9 @@ Si llegas aquí después de una compactación de contexto, el punto de entrada e
 | 5 — Revisión de código y seguridad | 6 | **completa** | 100 % |
 | 6 — Telegram | 4 | operativa | 85 % |
 | 7 — Hardening y distribución | 10 | casi completa (Linux empaquetado) | 80 % |
-| 8 — App de escritorio (egui) | 19 | funcional; faltan chat interactivo y PTY en daemon | 95 % |
+| 8 — App de escritorio (egui) | 19 | funcional; faltan chat interactivo y PTY en daemon | 96 % |
 
-- **Producto completo (backend + app): ~95 %.**
+- **Producto completo (backend + app): ~96 %.**
 - **MVP (fases 0–4): ~99 %.**
 
 El porcentaje mide alcance, no riesgo. La tesis arquitectónica (daemon durable, agente real,
@@ -55,7 +55,10 @@ worktree aislado, gates, DAG, integración) está validada con tests y scripts.
 - [x] 5.3 Fitness functions arquitectónicas: reglas `[[boundaries]]` en `.jcs/policy.toml`,
       evaluadas en el worktree y registradas como el gate `architecture`.
 - [x] 5.2 Escaneo de secretos: prefijos conocidos + entropía estricta, con allowlist por
-      proyecto (`[secrets]`), como gate `secrets` y con el hallazgo redactado.
+      proyecto (`[secrets]`), como gate `secrets` y con el hallazgo redactado. El gate de
+      tarea escanea **solo las líneas añadidas** contra `HEAD` (más archivos no rastreados),
+      ignora lockfiles, salidas generadas y nombres con separadores; una credencial
+      preexistente ya no bloquea cambios ajenos (ADR 0017).
 - [x] 5.1 Revisor con rúbrica: JSON estricto, findings con `archivo:línea`, `error` bloquea,
       opt-in con `JCS_REVIEW=1`, y entra en el bucle de reparación.
 - [x] 5.4 Enrutado por riesgo: tamaño del cambio (`JCS_RISK_MAX_LINES`) y, con revisión
@@ -126,6 +129,14 @@ El razonamiento y las alternativas están en la [ADR 0010](adr/0010-desktop-app-
       hay merges pendientes, el objetivo pasa a `blocked`/`failed` con `goal_stalled` en vez
       de quedarse `running` para siempre. `ensure_integration_branch` ya no escribe un evento
       por tick.
+- [x] 8.20 Visibilidad real del trabajo: las herramientas de OpenCode se decodifican con su
+      forma nativa (`session.tool.input.started`, `session.tool.called`,
+      `session.tool.success`) y el chat muestra nombre, entrada y salida; la tarjeta del
+      objetivo y el detalle muestran «Ahora: razonando / usando una herramienta / …» con la
+      edad de la última actividad. La pestaña Código abre el worktree de la tarea
+      seleccionada y añade «Ver cambios» con el diff ya cargado. El evento de integración
+      solo se emite cuando la rama queda estrictamente detrás de la base (antes: 531 eventos
+      idénticos en nueve minutos).
 - [x] 8.19 Markdown renderizado en las respuestas y streaming real del Orquestador:
       `orchestrator_text`/`orchestrator_reasoning` cada ~250 ms, `orchestrator_finished` al
       terminar, transcript persistido y render local de encabezados, listas, tablas, código e
@@ -168,7 +179,7 @@ API esté documentada y probada.
 
 | Comando | Qué demuestra |
 |---|---|
-| `cargo nextest run --workspace` | **336 tests** unitarios, de propiedad y de integración |
+| `cargo nextest run --workspace` | **343 tests** unitarios, de propiedad y de integración |
 | `just e2e` | objetivo → worktree → agente → gates → commit |
 | `just e2e-policy` | gate que exige un token: prueba el bucle de reparación |
 | `just e2e-plan` | objetivo → plan → DAG → tareas → entregables |

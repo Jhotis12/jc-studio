@@ -36,6 +36,8 @@ pub struct ToolInvocation {
     pub input: Option<Value>,
     pub output: Option<Value>,
     pub failed: bool,
+    /// Whether the backend reported the end of the call (success or failure).
+    pub completed: bool,
 }
 
 /// One decoded backend event.
@@ -132,14 +134,33 @@ impl AgentEvent {
         }
     }
 
+    /// Name associated with a tool call, when this event carries it.
+    ///
+    /// OpenCode 2.3.2 announces the name in `session.tool.input.started` and then sends
+    /// `session.tool.called` **without** a `tool` field, keyed by the same `id`.
+    pub fn tool_name(&self) -> Option<(String, String)> {
+        if self.kind != "session.tool.input.started" {
+            return None;
+        }
+        let name = self.data.get("name").and_then(Value::as_str)?;
+        let call_id = self
+            .data
+            .get("callID")
+            .or_else(|| self.data.get("callId"))
+            .or_else(|| self.data.get("id"))
+            .and_then(Value::as_str)?;
+        Some((call_id.to_string(), name.to_string()))
+    }
+
     /// Tool activity, if this event reports any.
     ///
-    /// Field names are read defensively because tool events were not exercised by the
-    /// captured fixture: `tool`/`name` and `input`/`args` are both accepted.
+    /// Field names are read defensively: OpenCode has moved between `tool` and `name`,
+    /// `input` and `args`, and `output`, `result` or `content` for the result.
     pub fn tool_invocation(&self) -> Option<ToolInvocation> {
-        let failed = match self.kind.as_str() {
-            "session.tool.called" | "session.tool.progress" => false,
-            "session.tool.failed" => true,
+        let (failed, completed) = match self.kind.as_str() {
+            "session.tool.called" | "session.tool.progress" => (false, false),
+            "session.tool.success" => (false, true),
+            "session.tool.failed" | "session.tool.error" => (true, true),
             _ => return None,
         };
 
@@ -147,7 +168,8 @@ impl AgentEvent {
             .data
             .get("tool")
             .or_else(|| self.data.get("name"))
-            .and_then(Value::as_str)?
+            .and_then(Value::as_str)
+            .unwrap_or_default()
             .to_string();
 
         let call_id = self
@@ -167,6 +189,7 @@ impl AgentEvent {
             .data
             .get("output")
             .or_else(|| self.data.get("result"))
+            .or_else(|| self.data.get("content"))
             .cloned();
 
         Some(ToolInvocation {
@@ -175,6 +198,7 @@ impl AgentEvent {
             input,
             output,
             failed,
+            completed,
         })
     }
 
@@ -289,11 +313,48 @@ mod tests {
         assert_eq!(tool.name, "read");
         assert_eq!(tool.input.as_ref().unwrap()["file"], "a.rs");
         assert!(!tool.failed);
+        assert!(!tool.completed);
 
         let failed = AgentEvent::from_frame(frame(
             r#"{"type":"session.tool.failed","data":{"sessionID":"ses_abc","tool":"bash","output":"exit 1"}}"#,
         ))
         .unwrap();
-        assert!(failed.tool_invocation().unwrap().failed);
+        let failed = failed.tool_invocation().unwrap();
+        assert!(failed.failed);
+        assert!(failed.completed);
+    }
+
+    #[test]
+    fn opencode_names_a_tool_before_calling_it() {
+        // Shape captured from OpenCode 2.3.2: the name is on `input.started`, while
+        // `called` only carries the id, the input and `executed: false`.
+        let started = AgentEvent::from_frame(frame(
+            r#"{"type":"session.tool.input.started","data":{"sessionID":"ses_abc","id":"call_1","name":"read"}}"#,
+        ))
+        .unwrap();
+        assert_eq!(
+            started.tool_name(),
+            Some(("call_1".to_string(), "read".to_string()))
+        );
+        assert!(started.tool_invocation().is_none());
+
+        let called = AgentEvent::from_frame(frame(
+            r#"{"type":"session.tool.called","data":{"sessionID":"ses_abc","id":"call_1","input":{"path":"README.md"},"executed":false}}"#,
+        ))
+        .unwrap();
+        let tool = called.tool_invocation().unwrap();
+        assert_eq!(tool.name, "");
+        assert_eq!(tool.call_id.as_deref(), Some("call_1"));
+        assert_eq!(tool.input.as_ref().unwrap()["path"], "README.md");
+
+        let succeeded = AgentEvent::from_frame(frame(
+            r#"{"type":"session.tool.success","data":{"sessionID":"ses_abc","id":"call_1","content":[{"type":"text","text":"ok"}]}}"#,
+        ))
+        .unwrap();
+        let tool = succeeded.tool_invocation().unwrap();
+        assert_eq!(tool.call_id.as_deref(), Some("call_1"));
+        assert!(tool.output.is_some());
+        assert!(!tool.failed);
+        assert!(tool.completed);
     }
 }

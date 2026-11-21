@@ -60,6 +60,8 @@ pub struct CodeState {
     pub search: String,
     pub new_path: String,
     pub show_diff: bool,
+    /// Set when another view asks for the diff; applied after the root changes.
+    pub pending_diff: bool,
     pub diff: Option<String>,
     pub diff_error: Option<String>,
     pub status: Option<(String, bool)>,
@@ -79,6 +81,7 @@ impl Default for CodeState {
             search: String::new(),
             new_path: String::new(),
             show_diff: false,
+            pending_diff: false,
             diff: None,
             diff_error: None,
             status: None,
@@ -97,7 +100,7 @@ impl CodeState {
         self.diff = None;
         self.diff_error = None;
         self.status = None;
-        self.show_diff = false;
+        self.show_diff = std::mem::take(&mut self.pending_diff);
         self.refresh();
     }
 
@@ -363,6 +366,19 @@ pub fn panel(ui: &mut egui::Ui, app: &mut Studio) {
         return;
     }
 
+    if app.code.pending_diff {
+        app.code.pending_diff = false;
+        app.code.show_diff = true;
+    }
+    if app.code.show_diff && app.code.diff.is_none() && app.code.diff_error.is_none() {
+        let base = app
+            .state
+            .project()
+            .map(|project| project.base_branch.clone())
+            .unwrap_or_else(|| "main".to_string());
+        app.code.load_diff(&base);
+    }
+
     let height = ui.available_height();
     ui.horizontal_top(|ui| {
         ui.allocate_ui_with_layout(
@@ -380,10 +396,14 @@ fn desired_root(app: &Studio) -> Option<(PathBuf, String)> {
     if app.code.prefer_worktree {
         if let Some(task) = app.state.selected_task() {
             if let Some(worktree) = &task.worktree {
-                return Some((
-                    PathBuf::from(worktree),
-                    format!("worktree · {}", short(&task.id)),
-                ));
+                // A merged task's worktree is deleted on purpose. Falling back to the
+                // project root beats showing an empty tree with no explanation.
+                if Path::new(worktree).exists() {
+                    return Some((
+                        PathBuf::from(worktree),
+                        format!("worktree · {} · {}", short(&task.id), task.status),
+                    ));
+                }
             }
         }
     }
@@ -404,13 +424,84 @@ fn explorer(ui: &mut egui::Ui, app: &mut Studio) {
         });
     });
     ui.label(RichText::new(&app.code.root_label).weak().small());
-    let has_worktree = app
+
+    let worktrees: Vec<(String, String)> = app
+        .state
+        .tasks
+        .iter()
+        .filter(|task| {
+            task.worktree
+                .as_ref()
+                .is_some_and(|path| Path::new(path).exists())
+        })
+        .map(|task| {
+            (
+                task.id.clone(),
+                crate::ui::truncate(&task.title, 34).to_string(),
+            )
+        })
+        .collect();
+    let selected_label = app
         .state
         .selected_task()
-        .is_some_and(|task| task.worktree.is_some());
-    ui.add_enabled_ui(has_worktree, |ui| {
-        ui.checkbox(&mut app.code.prefer_worktree, "usar worktree de la tarea");
+        .map(|task| crate::ui::truncate(&task.title, 30).to_string())
+        .unwrap_or_else(|| "raíz del proyecto".to_string());
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Ver").small().weak());
+        egui::ComboBox::from_id_salt("code-task")
+            .selected_text(selected_label)
+            .width(180.0)
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_label(app.state.selected_task.is_none(), "raíz del proyecto")
+                    .clicked()
+                {
+                    app.state.selected_task = None;
+                }
+                for (id, title) in &worktrees {
+                    if ui
+                        .selectable_label(
+                            app.state.selected_task.as_deref() == Some(id.as_str()),
+                            title,
+                        )
+                        .clicked()
+                    {
+                        app.select_task(id.clone());
+                    }
+                }
+            });
     });
+
+    let selected = app.state.selected_task().cloned();
+    let missing_worktree = selected.as_ref().is_some_and(|task| {
+        task.worktree
+            .as_ref()
+            .is_some_and(|path| !Path::new(path).exists())
+    });
+    if missing_worktree {
+        ui.label(
+            RichText::new(
+                "El worktree de esa tarea ya se integró y se eliminó; se muestra la raíz \
+                 del proyecto.",
+            )
+            .small()
+            .color(Color32::from_rgb(230, 170, 90)),
+        );
+    }
+    ui.add_enabled_ui(!worktrees.is_empty(), |ui| {
+        ui.checkbox(&mut app.code.prefer_worktree, "ver worktree de la tarea");
+    });
+    if selected.is_some()
+        && selected
+            .as_ref()
+            .is_some_and(|task| task.worktree.is_none())
+    {
+        ui.label(
+            RichText::new("Esta tarea aún no tiene worktree.")
+                .small()
+                .weak(),
+        );
+    }
 
     ui.add_space(4.0);
     ui.add(

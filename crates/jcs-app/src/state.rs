@@ -3,7 +3,7 @@
 //! The daemon is the source of truth. This module only mirrors its snapshots and events;
 //! nothing here is durable and nothing here decides the status of a task.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use jcs_core::{Event, EventKind};
 use jcs_proto::{
@@ -40,8 +40,44 @@ pub struct ActivityLine {
     pub time: String,
     pub kind: String,
     pub detail: String,
+    /// Tool calls can finish successfully or with an error.
+    pub failed: bool,
     /// Consecutive identical events are folded into one line with a counter.
     pub count: u32,
+}
+
+/// The latest thing an agent did on a task, kept out of the bounded event console so a
+/// stream of merge or housekeeping events cannot push the useful line out.
+#[derive(Debug, Clone)]
+pub struct TaskActivity {
+    pub kind: String,
+    pub detail: String,
+    pub at: jiff::Timestamp,
+    pub failed: bool,
+}
+
+impl TaskActivity {
+    /// Short human label for the activity kind.
+    pub fn label(&self) -> &'static str {
+        match (self.kind.as_str(), self.failed) {
+            ("agent_text", _) => "escribiendo la respuesta",
+            ("agent_reasoning", _) => "razonando",
+            ("agent_tool_called", _) => "usando una herramienta",
+            ("agent_tool_finished", true) => "herramienta falló",
+            ("agent_tool_finished", false) => "herramienta terminada",
+            ("gate_started" | "gate_finished", _) => "verificando",
+            ("run_started", _) => "agente iniciado",
+            ("task_status_changed", _) => "cambiando de etapa",
+            ("commit_created", _) => "commit creado",
+            ("merge_finished", _) => "integrando",
+            ("error", _) => "error",
+            _ => "trabajando",
+        }
+    }
+
+    pub fn age_secs(&self) -> i64 {
+        (jiff::Timestamp::now().as_second() - self.at.as_second()).max(0)
+    }
 }
 
 /// Stage of one task. This is the lifecycle, not a guess at how much model work remains:
@@ -142,6 +178,8 @@ pub struct State {
     pub runs: Vec<jcs_proto::RunView>,
     pub totals: Totals,
     pub events: VecDeque<ActivityLine>,
+    /// Latest agent activity per task, independent of the bounded event console.
+    pub task_activity: HashMap<String, TaskActivity>,
 
     pub selected_project: Option<String>,
     pub selected_goal: Option<String>,
@@ -223,6 +261,7 @@ impl State {
                     .collect();
                 self.tasks.retain(|task| task.goal_id != goal_id);
                 self.runs.retain(|run| !task_ids.contains(&run.task_id));
+                self.task_activity.retain(|id, _| !task_ids.contains(id));
                 if self.selected_goal.as_deref() == Some(goal_id.as_str()) {
                     self.selected_goal = None;
                     self.selected_task = None;
@@ -280,6 +319,9 @@ impl State {
         self.tasks = status.tasks;
         self.runs = status.runs;
         self.totals = status.totals;
+        let known = &self.tasks;
+        self.task_activity
+            .retain(|id, _| known.iter().any(|task| &task.id == id));
         self.select_initial_goal();
     }
 
@@ -305,6 +347,7 @@ impl State {
     }
 
     fn push_event(&mut self, event: Event, live: bool) {
+        self.record_activity(&event);
         if matches!(
             event.kind,
             EventKind::OrchestratorText
@@ -368,6 +411,11 @@ impl State {
         let goal_id = event.goal_id.as_ref().map(|id| id.to_string());
         let task_id = event.task_id.as_ref().map(|id| id.to_string());
         let kind = event.kind.as_str().to_string();
+        let failed = event
+            .payload
+            .get("failed")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
         if let Some(last) = self.events.back_mut() {
             if last.kind == kind
                 && last.detail == detail
@@ -385,11 +433,51 @@ impl State {
             time: event.ts.strftime("%H:%M:%S").to_string(),
             kind,
             detail,
+            failed,
             count: 1,
         });
         while self.events.len() > 2000 {
             self.events.pop_front();
         }
+    }
+
+    /// Keeps one useful line per task. This runs before coalescing and before the event
+    /// console drops old entries, so the board still knows what a running agent is doing.
+    fn record_activity(&mut self, event: &Event) {
+        let Some(task_id) = event.task_id.as_ref().map(|id| id.to_string()) else {
+            return;
+        };
+        if !matches!(
+            event.kind.as_str(),
+            "agent_text"
+                | "agent_reasoning"
+                | "agent_tool_called"
+                | "agent_tool_finished"
+                | "gate_started"
+                | "gate_finished"
+                | "run_started"
+                | "task_status_changed"
+                | "commit_created"
+                | "merge_finished"
+                | "error"
+        ) {
+            return;
+        }
+        let detail = summarize(event);
+        let detail: String = detail.chars().take(240).collect();
+        self.task_activity.insert(
+            task_id,
+            TaskActivity {
+                kind: event.kind.as_str().to_string(),
+                detail,
+                at: event.ts,
+                failed: event
+                    .payload
+                    .get("failed")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false),
+            },
+        );
     }
 
     /// Merges historical events (global or per task) with the live stream.
@@ -487,6 +575,10 @@ impl State {
     pub fn selected_task(&self) -> Option<&TaskView> {
         let id = self.selected_task.as_deref()?;
         self.tasks.iter().find(|task| task.id == id)
+    }
+
+    pub fn task_activity(&self, task_id: &str) -> Option<&TaskActivity> {
+        self.task_activity.get(task_id)
     }
 
     /// Tokens consumed by all attempts of a task.
@@ -765,5 +857,35 @@ mod tests {
             serde_json::json!({"reason": "budget exhausted", "hint": "raise it"}),
         );
         assert_eq!(summarize(&event), "budget exhausted · raise it");
+    }
+
+    #[test]
+    fn the_latest_task_activity_survives_a_full_event_console() {
+        let mut state = State::default();
+        let task = jcs_core::TaskId::new();
+        let mut reasoning = event(
+            1,
+            EventKind::AgentReasoning,
+            serde_json::json!({ "text": "checking the lockfile" }),
+        );
+        reasoning.task_id = Some(task.clone());
+        state.push_event(reasoning, true);
+
+        for seq in 2..=2200 {
+            state.push_event(
+                event(
+                    seq,
+                    EventKind::DaemonStarted,
+                    serde_json::json!({ "n": seq }),
+                ),
+                false,
+            );
+        }
+
+        let activity = state.task_activity(task.as_str()).unwrap();
+        assert_eq!(activity.kind, "agent_reasoning");
+        assert_eq!(activity.label(), "razonando");
+        assert!(activity.detail.contains("lockfile"));
+        assert!(state.events.len() <= 2000);
     }
 }

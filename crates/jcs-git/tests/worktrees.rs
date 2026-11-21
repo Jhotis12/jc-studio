@@ -80,6 +80,34 @@ async fn a_dirty_worktree_is_reported() {
 }
 
 #[tokio::test]
+async fn working_changes_are_the_added_lines_and_untracked_files() {
+    let (dir, repo) = fixture().await;
+    std::fs::write(dir.path().join("README.md"), "hello\nworld\n").unwrap();
+    std::fs::write(dir.path().join("new.txt"), "first\nsecond\n").unwrap();
+
+    let changed = repo.working_changed_lines().await.unwrap();
+
+    let readme = changed
+        .iter()
+        .find(|change| change.path == "README.md")
+        .expect("the modified file is present");
+    assert_eq!(
+        readme.lines,
+        vec![(2, "world".to_string())],
+        "only the added line is reported, with its real line number"
+    );
+
+    let new = changed
+        .iter()
+        .find(|change| change.path == "new.txt")
+        .expect("untracked files are scanned whole");
+    assert_eq!(
+        new.lines,
+        vec![(1, "first".to_string()), (2, "second".to_string())]
+    );
+}
+
+#[tokio::test]
 async fn nothing_staged_produces_no_commit() {
     let (_dir, repo) = fixture().await;
 

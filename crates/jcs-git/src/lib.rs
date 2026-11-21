@@ -10,4 +10,4 @@ pub mod repo;
 
 pub use commit::{branch_name, slugify, truncate_words, validate, CommitKind, ConventionalCommit};
 pub use error::{GitError, Result};
-pub use repo::{CommitOutcome, Repo, Worktree};
+pub use repo::{ChangedText, CommitOutcome, Repo, Worktree};

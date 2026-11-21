@@ -20,7 +20,7 @@ en paralelo con leases, las verifica con gates, las integra en una rama de objet
 promociona a la base; indexa el código, le pasa al agente contexto citado y la app de
 escritorio permite operar todo sin tocar la consola.
 
-- 12 crates, **325 tests**, árbol limpio.
+- 12 crates, **343 tests**, árbol limpio.
 - `cargo fmt --check`, `cargo clippy -D warnings`, `cargo nextest`, `cargo deny check`:
   todo en verde.
 - Soak verde; tarball Linux con `jcsd`, `jcs` y `jc-studio` (`./scripts/package.sh`).
@@ -31,7 +31,7 @@ escritorio permite operar todo sin tocar la consola.
 
 ```bash
 cargo build --bins
-cargo nextest run --workspace        # 325 tests
+cargo nextest run --workspace        # 343 tests
 python3 scripts/check_contract.py    # contrato de OpenCode
 cargo deny check                     # licencias y avisos
 ```
@@ -142,6 +142,12 @@ Opt-in con `JCS_REVIEW=1`; un fallo del revisor **no** bloquea trabajo que ya pa
 configurado por `[secrets]` en `.jcs/policy.toml` y registrado como gate `secrets` en
 `verify.rs`. El hallazgo se redacta: nunca se imprime la credencial.
 
+El gate de tarea usa `jcs-git::Repo::working_changed_lines()` y `scan_targets`: solo las
+líneas añadidas contra `HEAD` y los archivos no rastreados. Omite lockfiles, `graphify-out/`,
+`dist/`, `target/` y minificados; la heurística ignora nombres con `/ - _ .`. La razón está
+en la [ADR 0017](adr/0017-secrets-scope.md). `scan_secrets(root, options)` sigue disponible
+para auditar el árbol completo.
+
 ### 5.3 Revisor con rúbrica (modelo)
 
 Patrón ya probado en `crates/jcs-daemon/src/planner.rs`: sesión dedicada, salida JSON
@@ -207,8 +213,14 @@ consola. La decisión y las alternativas están en la
   agente (razonamiento, texto, herramientas, gates). El motivo de espera se calcula en la UI
   a partir de dependencias, claims y capacidad; el daemon sigue siendo la autoridad.
 - Editor: pestaña «Código» con árbol, edición, guardado, archivos nuevos, diff del worktree
-  contra la base y protección de cambios sin guardar. Es edición local, no orquestación: el
-  daemon no participa en leer/escribir archivos.
+  contra la base y protección de cambios sin guardar. La pestaña abre por defecto el worktree
+  de la tarea seleccionada; un selector permite volver a la raíz y «Ver cambios» (en el
+  detalle) carga el diff. Si el worktree ya se integró y se eliminó, cae a la raíz con aviso.
+  Es edición local, no orquestación: el daemon no participa en leer/escribir archivos.
+- Actividad: `State::task_activity` guarda la última acción por tarea fuera de la consola
+  acotada (razonando, escribiendo, herramienta, gate, commit, merge) y el tablero/detalle
+  muestran su edad. El evento de integración solo se emite cuando la rama está estrictamente
+  detrás de la base; la igualdad no cuenta.
 - Telegram: token de escritura única en `secrets.json` (0600), chats permitidos en `settings`,
   y aviso de reinicio. La API solo devuelve `telegram_configured` y los últimos cuatro
   caracteres.
@@ -216,8 +228,11 @@ consola. La decisión y las alternativas están en la
   tareas/runs/leases por cascada y conserva el event log con `goal_deleted`) y reintentar
   como objetivo nuevo.
 - Chat: pestaña «Chat» por tarea; objetivo y tarea como mensajes, deltas de texto agrupados,
-  pensamiento colapsable, herramientas y eventos. Es de lectura; enviar mensajes a la sesión
-  es el siguiente paso.
+  pensamiento colapsable, herramientas y eventos. Las herramientas se decodifican de la forma
+  real de OpenCode 2.3.2: el nombre llega en `session.tool.input.started`, la llamada en
+  `session.tool.called` (sin campo `tool`) y el resultado en `session.tool.success`
+  (`content`). El ejecutor cachea el nombre por `call_id`. Es de lectura; enviar mensajes a
+  la sesión es el siguiente paso.
 - Skills/MCP: `GET /catalog/skills` y `/catalog/mcp` (OpenCode), selección de skills en
   `settings.agent_skills` que el ejecutor activa antes del prompt, y MCP conectar/desconectar/
   añadir en caliente/quitar. La consulta correcta de OpenCode es
@@ -290,6 +305,9 @@ consola. La decisión y las alternativas están en la
   cierre y trata `[`/backtick sin pareja como literales para no entrar en bucles.
 - El streaming del texto depende del modelo; no prometer token a token si el proveedor
   bufferiza. El razonamiento en vivo no se guarda en la conversación.
+- No volver a escanear todo el worktree en el gate de secretos: los lockfiles y los nombres
+  de modelo hicieron que dos tareas intentaran "arreglar" archivos ajenos y una acabara
+  evadiendo el escáner. Ver ADR 0017.
 - El coste del planificador, del revisor y del chat del Orquestador no está asociado a un run
   de tarea; hoy no entra en el total. Está anotado como pendiente.
 - «Hola» en el compositor creó 4 tareas leyendo OpenSpec: el planificador no distingue una

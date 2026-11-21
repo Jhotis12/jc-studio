@@ -56,8 +56,11 @@ pub async fn ensure_integration_branch(
         // A blocked goal's branch may predate another goal's promotion. If it has no work
         // of its own it is just a stale pointer: move it to the current base instead of
         // letting it diverge and fail promotion later.
-        if repo
-            .is_ancestor(&branch, &project.base_branch)
+        //
+        // Equality is not "behind": after moving the branch it points at the base, so a
+        // plain `is_ancestor` check moved it again on every tick and emitted an event per
+        // second (531 of them in one nine-minute run).
+        if integration_is_stale(&repo, &branch, &project.base_branch)
             .await
             .unwrap_or(false)
         {
@@ -204,6 +207,16 @@ async fn merge_task(
     }
 
     Ok(())
+}
+
+/// Whether the integration branch points at an older commit than the base.
+///
+/// An equal branch is not stale. Treating it as stale moved the branch and emitted a
+/// `merge_finished` event on every scheduler tick.
+async fn integration_is_stale(repo: &Repo, branch: &str, base: &str) -> Result<bool> {
+    let behind = repo.is_ancestor(branch, base).await?;
+    let same = repo.is_ancestor(base, branch).await?;
+    Ok(behind && !same)
 }
 
 async fn integration_worktree(
@@ -370,12 +383,59 @@ fn suffix(id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::process::Command;
+
     use super::*;
+
+    fn git(directory: &std::path::Path, args: &[&str]) {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(directory)
+            .args(args)
+            .output()
+            .expect("git runs");
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     #[test]
     fn suffixes_are_stable_and_bounded() {
         assert_eq!(suffix("goal_0123456789abcdef"), "89abcdef");
         assert_eq!(suffix("goal_abc"), "goalabc");
         assert!(suffix("goal_abc").chars().count() <= 8);
+    }
+
+    #[tokio::test]
+    async fn an_equal_integration_branch_is_not_stale() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path();
+        git(path, &["init", "-q", "-b", "main"]);
+        git(path, &["config", "user.email", "test@jcs.local"]);
+        git(path, &["config", "user.name", "JC Studio Tests"]);
+        std::fs::write(path.join("README.md"), "one\n").unwrap();
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "-qm", "chore: initial commit"]);
+
+        let repo = Repo::new(path);
+        repo.create_branch("jcs/goal/x", "main").await.unwrap();
+        assert!(!integration_is_stale(&repo, "jcs/goal/x", "main")
+            .await
+            .unwrap());
+
+        // The base moved: now the integration branch is genuinely behind.
+        std::fs::write(path.join("README.md"), "two\n").unwrap();
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "-qm", "chore: move main"]);
+        assert!(integration_is_stale(&repo, "jcs/goal/x", "main")
+            .await
+            .unwrap());
+
+        repo.move_branch("jcs/goal/x", "main").await.unwrap();
+        assert!(!integration_is_stale(&repo, "jcs/goal/x", "main")
+            .await
+            .unwrap());
     }
 }

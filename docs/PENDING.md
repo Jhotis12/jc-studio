@@ -52,6 +52,16 @@ Cada entrada tiene una condición de salida; sin ella, no es una decisión, es u
 - **Gates en secuencia:** más lentos que en paralelo, pero atribuibles y deterministas.
 - **Parsers:** `cargo`, `node`, `coverage` y genérico. `pytest` cae en genérico hasta que
   haya un fixture que justifique un parser propio.
+- **Alcance del gate de secretos:** por tarea escanea solo las líneas añadidas contra `HEAD`
+  y los archivos no rastreados; no audita credenciales preexistentes que nadie toca. La
+  auditoría completa existe en `jcs_gates::scan_secrets(root, options)`, pero todavía no hay
+  un botón en la app. Condición de salida: acción «Auditar secretos del proyecto» en la
+  pestaña Política, con resultado redactado y allowlist.
+- **Forma de los eventos de herramienta:** verificada contra OpenCode 2.3.2
+  (`session.tool.input.started`, `session.tool.called`, `session.tool.success`,
+  `session.tool.error`). Si OpenCode cambia los nombres, las herramientas desaparecen del
+  chat aunque el razonamiento siga; hay que actualizar `jcs-agent::events` con una captura
+  real.
 
 
 ## Coste auxiliar

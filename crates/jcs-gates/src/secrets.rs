@@ -37,7 +37,26 @@ const SKIP_DIRS: &[&str] = &[
     "__pycache__",
     ".venv",
     "venv",
+    "graphify-out",
 ];
+
+/// Lockfiles are public dependency metadata: their base64 integrity hashes are not
+/// credentials. Scanning them made tasks try to "fix" package managers.
+const SKIP_FILES: &[&str] = &[
+    "bun.lock",
+    "bun.lockb",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "Cargo.lock",
+    "go.sum",
+    "poetry.lock",
+    "Pipfile.lock",
+    "composer.lock",
+    "Gemfile.lock",
+];
+
+const SKIP_SUFFIXES: &[&str] = &[".min.js", ".min.css", ".map"];
 
 /// Known credential formats, matched literally.
 const PREFIXES: &[(&str, &str)] = &[
@@ -85,25 +104,23 @@ pub struct ScanOptions {
     pub allow_prefixes: Vec<String>,
 }
 
+/// One file or fragment to scan. Verification passes only the lines a task added, so
+/// pre-existing hashes and model names cannot fail an unrelated change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScanTarget {
+    pub path: String,
+    pub lines: Vec<(u32, String)>,
+}
+
 /// Scans a working tree for likely credentials.
 pub fn scan(root: &Path, options: &ScanOptions) -> Result<Vec<SecretFinding>, GateError> {
-    let mut findings = Vec::new();
-
+    let mut targets = Vec::new();
     for path in walk(root) {
         let relative = path
             .strip_prefix(root)
             .unwrap_or(&path)
             .to_string_lossy()
             .replace('\\', "/");
-
-        if options
-            .allow_prefixes
-            .iter()
-            .any(|prefix| relative.starts_with(prefix.trim_end_matches('/')))
-        {
-            continue;
-        }
-
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
@@ -113,17 +130,42 @@ pub fn scan(root: &Path, options: &ScanOptions) -> Result<Vec<SecretFinding>, Ga
         let Ok(source) = String::from_utf8(bytes) else {
             continue;
         };
+        targets.push(ScanTarget {
+            path: relative,
+            lines: source
+                .lines()
+                .enumerate()
+                .map(|(index, line)| (index as u32 + 1, line.to_string()))
+                .collect(),
+        });
+    }
+    Ok(scan_targets(&targets, options))
+}
+
+/// Scans explicit fragments, applying the same exclusions as [`scan`].
+pub fn scan_targets(targets: &[ScanTarget], options: &ScanOptions) -> Vec<SecretFinding> {
+    let mut findings = Vec::new();
+
+    for target in targets {
+        if is_allowed(&target.path, options) || is_skipped_path(&target.path) {
+            continue;
+        }
 
         let mut per_file = 0usize;
-        for (index, line) in source.lines().enumerate() {
+        for (line, text) in &target.lines {
             if per_file >= MAX_PER_FILE {
                 break;
             }
-            for finding in scan_line(&relative, index as u32 + 1, line) {
+            for finding in scan_line(&target.path, *line, text) {
                 findings.push(finding);
                 per_file += 1;
                 if findings.len() >= MAX_FINDINGS {
-                    return Ok(findings);
+                    findings.sort_by(|left, right| {
+                        left.path
+                            .cmp(&right.path)
+                            .then_with(|| left.line.cmp(&right.line))
+                    });
+                    return findings;
                 }
             }
         }
@@ -134,7 +176,23 @@ pub fn scan(root: &Path, options: &ScanOptions) -> Result<Vec<SecretFinding>, Ga
             .cmp(&right.path)
             .then_with(|| left.line.cmp(&right.line))
     });
-    Ok(findings)
+    findings
+}
+
+fn is_allowed(path: &str, options: &ScanOptions) -> bool {
+    options
+        .allow_prefixes
+        .iter()
+        .any(|prefix| path.starts_with(prefix.trim_end_matches('/')))
+}
+
+fn is_skipped_path(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    SKIP_FILES.contains(&name)
+        || SKIP_SUFFIXES.iter().any(|suffix| path.ends_with(suffix))
+        || path
+            .split('/')
+            .any(|component| SKIP_DIRS.contains(&component))
 }
 
 fn scan_line(path: &str, line: u32, text: &str) -> Vec<SecretFinding> {
@@ -155,7 +213,7 @@ fn scan_line(path: &str, line: u32, text: &str) -> Vec<SecretFinding> {
     }
 
     for token in candidates(text) {
-        if is_benign(&token) {
+        if is_benign(&token) || !looks_like_secret(&token) {
             continue;
         }
         if entropy(&token) >= ENTROPY_THRESHOLD && has_letter_and_digit(&token) {
@@ -215,6 +273,18 @@ fn entropy(token: &str) -> f64 {
 
 fn has_letter_and_digit(token: &str) -> bool {
     token.chars().any(|c| c.is_ascii_alphabetic()) && token.chars().any(|c| c.is_ascii_digit())
+}
+
+/// A generic credential does not look like a path, a model identifier or a version.
+///
+/// `speaches-ai/Kokoro-82M-v1.0-ONNX` and `OPENCODE_EXPERIMENTAL_BASH_TIMEOUT_MS` are
+/// separator-rich and were the false positives that sent agents into repair loops. Real
+/// API keys with a known prefix are matched before this heuristic; the rest are compact
+/// base64/alphanumeric blobs.
+fn looks_like_secret(token: &str) -> bool {
+    !token
+        .chars()
+        .any(|character| matches!(character, '/' | '-' | '_' | '.'))
 }
 
 fn is_benign(text: &str) -> bool {
@@ -352,5 +422,48 @@ mod tests {
     fn entropy_threshold_separates_random_from_words() {
         assert!(entropy("correct-horse-battery-staple") < 4.2);
         assert!(entropy("Qw8Zr3Lp6Xv0Nb2Ty5Um9Kj4Hd7Sg1Fa") >= 4.2);
+    }
+
+    #[test]
+    fn model_names_and_env_variables_are_not_secrets() {
+        for text in [
+            "model: \"speaches-ai/Kokoro-82M-v1.0-ONNX\"",
+            "OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS=1800000",
+            "EMBEDDINGS_MODEL=text-embedding-3-small",
+        ] {
+            assert!(scan_text(text).is_empty(), "false positive for {text}");
+        }
+    }
+
+    #[test]
+    fn only_supplied_lines_are_scanned() {
+        let targets = vec![ScanTarget {
+            path: "src/config.rs".to_string(),
+            lines: vec![(
+                9,
+                "const KEY: &str = \"Qw8Zr3Lp6Xv0Nb2Ty5Um9Kj4Hd7Sg1Fa\";".to_string(),
+            )],
+        }];
+        let findings = scan_targets(&targets, &ScanOptions::default());
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].line, 9);
+        assert_eq!(findings[0].kind, "high-entropy");
+    }
+
+    #[test]
+    fn lockfiles_and_generated_output_are_skipped() {
+        let target = |path: &str| ScanTarget {
+            path: path.to_string(),
+            lines: vec![(
+                1,
+                "hash = \"sha512-Qw8Zr3Lp6Xv0Nb2Ty5Um9Kj4Hd7Sg1Fa==\"".to_string(),
+            )],
+        };
+        let targets = vec![
+            target("bun.lock"),
+            target("graphify-out/graph.html"),
+            target("assets/app.min.js"),
+        ];
+        assert!(scan_targets(&targets, &ScanOptions::default()).is_empty());
     }
 }

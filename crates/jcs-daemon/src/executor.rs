@@ -12,6 +12,7 @@
 //! from the task counts, so a multi-task plan cannot be finalized by whichever task
 //! happened to finish last.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -467,6 +468,8 @@ async fn pump_events(
 
     let mut buffer = String::new();
     let mut reasoning = String::new();
+    // OpenCode sends the tool name before the call and omits it from the call itself.
+    let mut tool_names: HashMap<String, String> = HashMap::new();
 
     loop {
         tokio::select! {
@@ -509,7 +512,17 @@ async fn pump_events(
                         .await?;
                 }
 
-                if let Some(tool) = event.tool_invocation() {
+                if let Some((call_id, name)) = event.tool_name() {
+                    tool_names.insert(call_id, name);
+                }
+                if let Some(mut tool) = event.tool_invocation() {
+                    if tool.name.is_empty() {
+                        tool.name = tool
+                            .call_id
+                            .as_ref()
+                            .and_then(|call_id| tool_names.get(call_id).cloned())
+                            .unwrap_or_else(|| "tool".to_string());
+                    }
                     record_tool(state, &dispatch.task_id, run_id, session_id, &tool).await?;
                 }
 
@@ -709,7 +722,7 @@ async fn record_tool(
     session_id: &str,
     tool: &ToolInvocation,
 ) -> Result<()> {
-    let kind = if tool.failed {
+    let kind = if tool.completed {
         EventKind::AgentToolFinished
     } else {
         EventKind::AgentToolCalled

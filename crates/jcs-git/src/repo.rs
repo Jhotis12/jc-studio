@@ -35,6 +35,19 @@ pub struct CommitOutcome {
     pub short: String,
 }
 
+/// Lines a task added to its worktree, with the path relative to the worktree.
+///
+/// Verification scans these lines instead of the whole tree: a pre-existing hash in a
+/// lockfile or a model name in a test is not something the task introduced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangedText {
+    pub path: String,
+    pub lines: Vec<(u32, String)>,
+}
+
+/// Upper bound for an untracked file scanned as a whole. Anything bigger is generated.
+const MAX_UNTRACKED_BYTES: usize = 1024 * 1024;
+
 impl Repo {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
@@ -348,6 +361,47 @@ impl Repo {
             .collect())
     }
 
+    /// Added lines in the working tree compared with HEAD, plus every line of an
+    /// untracked text file.
+    ///
+    /// This is the scope of a task's change: what the agent wrote, not what was already
+    /// in the repository. Ignored files are excluded by git itself.
+    pub async fn working_changed_lines(&self) -> Result<Vec<ChangedText>> {
+        // `git diff HEAD` covers staged and unstaged modifications in one pass.
+        let diff = self
+            .must_git(&["diff", "--unified=0", "--no-color", "HEAD"])
+            .await?;
+        let mut changed = parse_added_lines(&diff);
+
+        let untracked = self
+            .must_git(&["ls-files", "--others", "--exclude-standard", "-z"])
+            .await?;
+        for relative in untracked.split('\0').filter(|path| !path.is_empty()) {
+            let path = self.root.join(relative);
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            if bytes.len() > MAX_UNTRACKED_BYTES || bytes.iter().take(4096).any(|byte| *byte == 0) {
+                continue;
+            }
+            let Ok(source) = String::from_utf8(bytes) else {
+                continue;
+            };
+            let lines = source
+                .lines()
+                .enumerate()
+                .map(|(index, line)| (index as u32 + 1, line.to_string()))
+                .collect();
+            changed.push(ChangedText {
+                path: relative.to_string(),
+                lines,
+            });
+        }
+
+        changed.sort_by(|left, right| left.path.cmp(&right.path));
+        Ok(changed)
+    }
+
     /// Diff between `base` and the index, i.e. exactly what a commit would contain.
     pub async fn diff_staged(&self, base: &str) -> Result<String> {
         self.must_git(&["diff", "--cached", base]).await
@@ -420,4 +474,71 @@ impl Repo {
             &String::from_utf8_lossy(&output.stderr),
         ))
     }
+}
+
+/// Reads the added side of a `--unified=0` diff.
+fn parse_added_lines(diff: &str) -> Vec<ChangedText> {
+    let mut changed: Vec<ChangedText> = Vec::new();
+    let mut current: Option<usize> = None;
+    let mut new_line = 0u32;
+    let mut in_hunk = false;
+
+    for line in diff.lines() {
+        if let Some(path) = line.strip_prefix("+++ ") {
+            in_hunk = false;
+            let path = path.trim();
+            if path == "/dev/null" {
+                current = None;
+                continue;
+            }
+            // Git normally uses `a/` and `b/`, but a user config can rename the diff
+            // prefixes (this machine uses `c/` and `w/`). Strip the one-letter component
+            // so the path stays relative to the worktree.
+            let path = strip_diff_prefix(path).trim_matches('"').to_string();
+            changed.push(ChangedText {
+                path,
+                lines: Vec::new(),
+            });
+            current = Some(changed.len() - 1);
+            continue;
+        }
+
+        if line.starts_with("@@") {
+            new_line = hunk_new_start(line).unwrap_or(0);
+            in_hunk = true;
+            continue;
+        }
+
+        if !in_hunk {
+            continue;
+        }
+
+        if let Some(text) = line.strip_prefix('+') {
+            if let Some(index) = current {
+                changed[index].lines.push((new_line, text.to_string()));
+            }
+            new_line = new_line.saturating_add(1);
+        } else if line.starts_with(' ') {
+            new_line = new_line.saturating_add(1);
+        }
+        // Removed lines and `\ No newline at end of file` do not advance the new side.
+    }
+
+    changed
+}
+
+/// `@@ -10,2 +20,3 @@` -> `20`.
+fn hunk_new_start(header: &str) -> Option<u32> {
+    let rest = header.strip_prefix("@@ ")?;
+    let plus = rest.split_whitespace().find(|part| part.starts_with('+'))?;
+    plus.trim_start_matches('+').split(',').next()?.parse().ok()
+}
+
+fn strip_diff_prefix(path: &str) -> &str {
+    for prefix in ["a/", "b/", "c/", "w/"] {
+        if let Some(rest) = path.strip_prefix(prefix) {
+            return rest;
+        }
+    }
+    path
 }

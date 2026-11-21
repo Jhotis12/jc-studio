@@ -118,7 +118,7 @@ fn coalesce(lines: Vec<ActivityLine>) -> Vec<Item> {
                 detail: line.detail,
             }),
             "agent_tool_finished" => items.push(Item::Tool {
-                failed: true,
+                failed: line.failed,
                 detail: line.detail,
             }),
             _ => items.push(Item::System(line)),
