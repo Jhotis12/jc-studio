@@ -1,0 +1,39 @@
+id = "rust-service"
+version = "1.0.0"
+description = "Rust service: formatting, clippy as an error, tests, and a dependency audit."
+requires = ["core-git", "core-security"]
+instructions = ["instructions.md"]
+
+[rules]
+no_unwrap_outside_tests = "No `unwrap()`/`expect()` outside tests. Use `?` and a typed error."
+typed_errors = "Domain errors use `thiserror`; `anyhow` only at binary boundaries."
+no_panics_in_libraries = "A library function must not panic on input it can validate."
+immutability_by_default = "Prefer returning new values over mutating shared state."
+no_unsafe_without_justification = "`unsafe` needs a comment explaining why it is sound and what would break it."
+
+[gates.fmt]
+command = ["cargo", "fmt", "--all", "--", "--check"]
+timeout_secs = 120
+
+[gates.clippy]
+command = ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+timeout_secs = 900
+parser = "cargo"
+
+[gates.test]
+command = ["cargo", "test", "--workspace", "--all-targets"]
+timeout_secs = 1200
+parser = "cargo"
+
+[gates.audit]
+command = ["cargo", "deny", "check"]
+timeout_secs = 600
+required = false
+parser = "generic"
+
+[gates.coverage]
+command = ["cargo", "llvm-cov", "--fail-under-lines", "80"]
+timeout_secs = 1200
+required = false
+parser = "coverage"
+min_coverage = 80.0

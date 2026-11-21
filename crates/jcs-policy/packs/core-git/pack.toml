@@ -1,0 +1,13 @@
+id = "core-git"
+version = "1.0.0"
+description = "Conventional commits, small reviewable changes, and no history rewriting."
+requires = []
+instructions = ["instructions.md"]
+
+[rules]
+conventional_commits = '"<type>(<scope>): <summary>" in the imperative mood, lowercase, no trailing period.'
+atomic_changes = "One coherent change per commit. Never mix a refactor with a behaviour change."
+never_force_push = "Never force-push, amend shared history, or rewrite a branch someone else may have pulled."
+no_secrets_in_git = "Never commit credentials, tokens, private keys, or `.env` files with real values."
+
+[gates]

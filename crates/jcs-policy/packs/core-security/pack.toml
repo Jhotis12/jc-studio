@@ -1,0 +1,14 @@
+id = "core-security"
+version = "1.0.0"
+description = "No secrets, validated input at every boundary, parameterised queries, least privilege."
+requires = []
+instructions = ["instructions.md"]
+
+[rules]
+no_hardcoded_secrets = "Secrets come from the environment or a secret manager, never from source."
+validate_at_boundaries = "Validate every external input once, at the boundary, and pass typed values inward."
+parameterised_queries = "SQL is always parameterised. Never interpolate values into a query string."
+no_secret_logging = "Never log tokens, passwords, session identifiers, or personal data."
+least_privilege = "New integrations and tokens get the narrowest scope that satisfies the requirement."
+
+[gates]

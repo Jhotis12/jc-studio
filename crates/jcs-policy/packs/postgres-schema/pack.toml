@@ -1,0 +1,15 @@
+id = "postgres-schema"
+version = "1.0.0"
+description = "PostgreSQL schema discipline: forward-only migrations, explicit constraints, indexed foreign keys, tenant isolation."
+requires = ["core-git"]
+instructions = ["instructions.md"]
+
+[rules]
+forward_only_migrations = "Migrations are forward-only in production. A rollback is a new migration."
+constraints_in_the_database = "Uniqueness, not-null and referential integrity are enforced by the database, not only by application code."
+index_foreign_keys = "Every foreign key used in a join or a delete cascade has an index."
+no_select_star = "Select the columns you need. `SELECT *` breaks silently when a column is added."
+tenant_isolation = "Tables that hold tenant data have row-level security enabled and tested."
+bounded_queries = "No unbounded query reaches production: paginate or justify the bound explicitly."
+
+[gates]

@@ -1,0 +1,14 @@
+id = "testing-tdd"
+version = "1.0.0"
+description = "Tests first, no weakening tests to pass, and a failing test as the reproduction of a bug."
+requires = []
+instructions = ["instructions.md"]
+
+[rules]
+test_first_for_behaviour = "A new behaviour starts as a failing test. A bug starts as a test that reproduces it."
+no_weakening_tests = "Never delete, skip or loosen a test to make the suite pass. Fix the code or explain why the test was wrong."
+coverage_floor = "Coverage may not drop. New logic without a test is unfinished work."
+deterministic_tests = "No sleeps, no real network, no dependency on wall-clock time or ordering."
+one_behaviour_per_test = "A test asserts one behaviour and fails for one reason."
+
+[gates]

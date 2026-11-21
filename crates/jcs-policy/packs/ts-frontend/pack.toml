@@ -1,0 +1,27 @@
+id = "ts-frontend"
+version = "1.0.0"
+description = "TypeScript frontend: strict types, lint, no `any` at boundaries, accessible components."
+requires = ["core-git", "core-security"]
+instructions = ["instructions.md"]
+
+[rules]
+strict_typescript = "`strict` stays on. `any` is not an escape hatch at a module boundary."
+validate_external_data = "Parse API responses and user input with a schema; do not cast them."
+no_effect_during_render = "No side effects during render. Effects belong in effects, not in component bodies."
+accessible_by_default = "Every interactive element has an accessible name, focus state and keyboard path."
+no_secret_in_bundle = "Only variables explicitly exposed to the client may reach the bundle."
+
+[gates.lint]
+command = ["npm", "run", "lint", "--silent"]
+timeout_secs = 600
+parser = "node"
+
+[gates.typecheck]
+command = ["npx", "tsc", "--noEmit"]
+timeout_secs = 600
+parser = "node"
+
+[gates.test]
+command = ["npm", "test", "--silent"]
+timeout_secs = 900
+parser = "node"

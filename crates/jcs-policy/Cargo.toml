@@ -1,0 +1,22 @@
+[package]
+name = "jcs-policy"
+description = "JC Studio policy compiler: versioned packs composed into instructions and executable gates"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+jcs-core = { workspace = true }
+jcs-gates = { workspace = true }
+
+serde = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
