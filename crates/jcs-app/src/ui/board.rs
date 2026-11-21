@@ -34,8 +34,24 @@ pub fn goals(ui: &mut egui::Ui, app: &mut Studio) {
         composer(ui, app);
         ui.add_space(6.0);
         if goals.is_empty() {
-            // The composer is the empty state: filters and a second explanation would only
-            // steal the little vertical space a short window has.
+            ui.add_space(26.0);
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    RichText::new("Todavía no hay objetivos")
+                        .size(15.0)
+                        .strong()
+                        .color(theme::MUTED),
+                );
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(
+                        "Cuando encoles uno, aquí verás su grafo, el progreso por tarea y la \
+                         actividad de cada agente.",
+                    )
+                    .size(12.0)
+                    .color(theme::FAINT),
+                );
+            });
             return;
         }
     }
