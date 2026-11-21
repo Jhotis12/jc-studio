@@ -27,6 +27,8 @@ historial de eventos reanudable.
 Lo que **no** hay todavía (fases 2–7): compilador de políticas y packs, descomposición de
 objetivos en DAG, TUI ratatui, grafo de código/RAG, Telegram, merge queue.
 
+Riesgos aceptados y decisiones diferidas: [`docs/PENDING.md`](docs/PENDING.md).
+
 ## Cómo termina un run
 
 Un run termina por el primero de estos hechos:
