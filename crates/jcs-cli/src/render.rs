@@ -173,11 +173,12 @@ pub fn status(response: &jcs_proto::StatusResponse) {
     }
 
     println!(
-        "\nTOTAL ${:.4} · {} tokens in / {} out · {} tasks",
+        "\nTOTAL ${:.4} · {} tokens in / {} out · {} · {}",
         response.totals.cost_usd,
         response.totals.tokens_in,
         response.totals.tokens_out,
-        response.totals.tasks
+        plural(response.totals.tasks, "task", "tasks"),
+        plural(response.totals.projects, "project", "projects"),
     );
 }
 
@@ -234,6 +235,14 @@ pub fn short_id(id: &str) -> &str {
     &body[..body.len().min(8)]
 }
 
+fn plural(count: i64, one: &str, many: &str) -> String {
+    if count == 1 {
+        format!("1 {one}")
+    } else {
+        format!("{count} {many}")
+    }
+}
+
 fn truncate(value: &str, max: usize) -> String {
     if value.chars().count() <= max {
         return value.to_string();
@@ -259,6 +268,13 @@ mod tests {
     fn short_ids_drop_the_prefix_and_bound_the_length() {
         assert_eq!(short_id("task_9f2c8ab1deadbeef"), "9f2c8ab1");
         assert_eq!(short_id("noprefix"), "noprefix");
+    }
+
+    #[test]
+    fn plurals_read_naturally() {
+        assert_eq!(plural(1, "task", "tasks"), "1 task");
+        assert_eq!(plural(0, "task", "tasks"), "0 tasks");
+        assert_eq!(plural(3, "task", "tasks"), "3 tasks");
     }
 
     #[test]
