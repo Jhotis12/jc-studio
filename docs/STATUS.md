@@ -21,7 +21,7 @@ Si llegas aquí después de una compactación de contexto, el punto de entrada e
 | 6 — Telegram | 4 | operativa | 85 % |
 | 7 — Hardening y distribución | 10 | casi completa (Linux empaquetado) | 80 % |
 
-- **v1 completo (fases 0–7): ~92 %.**
+- **Producto completo (backend + app): ~72 %.**
 - **MVP (fases 0–4): ~99 %.**
 
 El porcentaje mide alcance, no riesgo. La tesis arquitectónica (daemon durable, agente real,
@@ -67,6 +67,21 @@ worktree aislado, gates, DAG, integración) está validada con tests y scripts.
 - [ ] Rate limiting y resumen diario.
 - Nota: probado con tests de parseo y allowlist, **no contra la API real** de Telegram (no
   hay token en este entorno).
+
+## Fase 8: app de escritorio (egui)
+
+Decisión: cliente principal **instalable**, no una TUI lanzada por consola. Backend intacto.
+
+- [x] 8.0 Esqueleto eframe con layout (proyectos, objetivos, detalles, terminales) y arranque verificado.
+- [ ] 8.1 Cliente del daemon en la app (estado, eventos, reconexión).
+- [ ] 8.2 Tablero real: proyectos, objetivos, tareas, gates, diffs, runs.
+- [ ] 8.3 Terminal embebida: `alacritty_terminal` + `portable-pty`, con PTYs en el daemon
+      para que la sesión sobreviva al cerrar la ventana.
+- [ ] 8.4 Ajustes por interfaz (esquema, formularios, catálogos, secretos en keyring).
+- [ ] 8.5 Empaquetado de escritorio: `.desktop`, icono, AppImage/deb, instancia única.
+
+Nota: `egui 0.37` rediseñó `eframe::App`; la app está anclada a **0.31** hasta que la nueva
+API esté documentada y probada.
 
 ## Fase 7: qué falta exactamente
 

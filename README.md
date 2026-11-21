@@ -244,6 +244,19 @@ git -C ~/code/mi-servicio diff main...jcs/<rama>
 - El socket es `0600` dentro de un directorio `0700`; no hay puerto abierto.
 - Las credenciales de OpenCode se leen en memoria, se redactan en `Debug` y nunca se loguean.
 
+## App de escritorio
+
+El cliente principal es una **app de escritorio instalable** (egui), orientada a agentes y
+con terminales embebidas. El daemon sigue siendo un servicio de usuario; la app se conecta
+a él.
+
+```bash
+cargo run -p jcs-app        # ventana de desarrollo
+```
+
+Estado: esqueleto con el layout (proyectos, objetivos, detalles, terminales). El tablero,
+el stream del agente y el terminal real llegan en los siguientes pasos de la Fase 8.
+
 ## Arquitectura
 
 | Crate | Responsabilidad |

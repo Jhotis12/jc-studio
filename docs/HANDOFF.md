@@ -151,6 +151,22 @@ registrada en el event log).
 token): antes de confiar en él, levantar el bot con un token de prueba y verificar
 `getUpdates`, allowlist y un `/status`.
 
+## Fase 8 — app de escritorio (egui)
+
+El usuario corrigió la dirección: no quiere una TUI lanzada por consola, quiere una **app
+instalable** con terminales embebidas, orientada a agentes. El backend no cambia.
+
+- Crate: `crates/jcs-app`, binario `jc-studio`, `eframe`/`egui` **0.31** (0.37 cambió
+  `eframe::App` a `ui(&mut Ui)` y movió los paneles; no usar 0.37 sin adaptar).
+- Terminal: **no** usar `egui_term` (anclado a egui viejo). Construir sobre
+  `alacritty_terminal` (estado/ANSI) + `portable-pty` (PTY) con un widget propio.
+- PTYs: primero en la app; después en el daemon (`/pty` + stream) para que sobrevivan al
+  cierre de la ventana.
+- Empaquetado: `.desktop`, icono, AppImage/deb. La TUI (`jcs tui`) queda como cliente
+  secundario para SSH; el CLI sigue siendo la superficie de scripting.
+- Ajustes: el análisis de la fase anterior sigue vigente (esquema, formularios, secretos en
+  keyring, "requiere reinicio").
+
 ## Trampas ya encontradas (no repetirlas)
 
 - `git show --name-only <branch>` lista el **último commit**, no el árbol: usar `ls-tree`.

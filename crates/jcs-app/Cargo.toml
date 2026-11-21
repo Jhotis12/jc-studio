@@ -1,0 +1,22 @@
+[package]
+name = "jcs-app"
+description = "JC Studio desktop application (egui): agent-oriented control plane with embedded terminals"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "jc-studio"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.31", default-features = false, features = [
+    "glow",
+    "default_fonts",
+    "wayland",
+    "x11",
+] }
+egui = "0.31"
