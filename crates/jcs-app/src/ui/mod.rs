@@ -9,6 +9,7 @@ pub mod code;
 pub mod dag;
 pub mod details;
 pub mod extensions;
+pub mod markdown;
 pub mod memory;
 pub mod orchestrator;
 pub mod policy;
@@ -424,8 +425,8 @@ fn console(context: &egui::Context, app: &mut Studio) {
     }
     egui::TopBottomPanel::bottom("console")
         .resizable(true)
-        .default_height(240.0)
-        .min_height(120.0)
+        .default_height(200.0)
+        .min_height(100.0)
         .show(context, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(

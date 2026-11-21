@@ -10,6 +10,7 @@ mod executor;
 mod http;
 mod memory_service;
 mod merge;
+mod orchestrator;
 mod planner;
 mod reviewer;
 mod scheduler;

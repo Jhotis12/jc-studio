@@ -30,7 +30,10 @@ pub fn panel(ui: &mut egui::Ui, app: &mut Studio) {
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
-                .button("Nueva conversación")
+                .add_enabled(
+                    !app.state.orchestrator_busy,
+                    egui::Button::new("Nueva conversación"),
+                )
                 .on_hover_text("Borra el historial y empieza una sesión limpia.")
                 .clicked()
             {
@@ -58,11 +61,46 @@ pub fn panel(ui: &mut egui::Ui, app: &mut Studio) {
     );
     ui.add_space(4.0);
 
+    egui::TopBottomPanel::bottom("orchestrator-compose")
+        .resizable(false)
+        .exact_height(112.0)
+        .show_inside(ui, |ui| {
+            ui.separator();
+            let editor = ui.add(
+                egui::TextEdit::multiline(&mut app.orchestrator_input)
+                    .desired_rows(3)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("Escribe al orquestador…"),
+            );
+            let submit =
+                ui.input(|input| input.modifiers.command && input.key_pressed(egui::Key::Enter));
+            ui.horizontal(|ui| {
+                let can_send =
+                    !app.state.orchestrator_busy && !app.orchestrator_input.trim().is_empty();
+                if ui
+                    .add_enabled(can_send, egui::Button::new("Enviar"))
+                    .on_hover_text("Ctrl+Enter")
+                    .clicked()
+                {
+                    app.send_orchestrator();
+                }
+                if app.state.orchestrator_busy {
+                    ui.spinner();
+                    ui.label(RichText::new("esperando respuesta…").weak().small());
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(RichText::new(&project.name).weak().small());
+                });
+            });
+            if submit && editor.has_focus() {
+                app.send_orchestrator();
+            }
+        });
+
     let messages = app.state.orchestrator.clone();
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
-        .stick_to_bottom(true)
-        .max_height(ui.available_height() - 118.0)
+        .stick_to_bottom(app.state.orchestrator_busy)
         .show(ui, |ui| {
             if messages.is_empty() {
                 ui.add_space(12.0);
@@ -77,42 +115,49 @@ pub fn panel(ui: &mut egui::Ui, app: &mut Studio) {
             for message in &messages {
                 bubble(ui, app, message);
             }
-            if app.state.orchestrator_busy {
+            if !app.state.orchestrator_reasoning.is_empty() {
+                egui::CollapsingHeader::new(
+                    RichText::new("Pensamiento en vivo")
+                        .small()
+                        .color(Color32::from_rgb(130, 140, 165)),
+                )
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.label(
+                        RichText::new(crate::ui::truncate(
+                            app.state.orchestrator_reasoning.trim(),
+                            4_000,
+                        ))
+                        .italics()
+                        .small()
+                        .color(Color32::from_rgb(130, 140, 165)),
+                    );
+                });
+            }
+            if !app.state.orchestrator_streaming.is_empty() {
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(28, 32, 40))
+                    .inner_margin(egui::Margin::symmetric(8, 6))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("Orquestador")
+                                    .small()
+                                    .strong()
+                                    .color(Color32::from_rgb(150, 190, 230)),
+                            );
+                            ui.label(RichText::new("escribiendo…").weak().small());
+                        });
+                        crate::ui::markdown::render(ui, &app.state.orchestrator_streaming);
+                    });
+                ui.add_space(3.0);
+            } else if app.state.orchestrator_busy {
                 ui.horizontal(|ui| {
                     ui.spinner();
                     ui.label("El orquestador está pensando…".to_string());
                 });
             }
         });
-
-    ui.separator();
-    let editor = ui.add(
-        egui::TextEdit::multiline(&mut app.orchestrator_input)
-            .desired_rows(3)
-            .desired_width(f32::INFINITY)
-            .hint_text("Escribe al orquestador…"),
-    );
-    let submit = ui.input(|input| input.modifiers.command && input.key_pressed(egui::Key::Enter));
-    ui.horizontal(|ui| {
-        let can_send = !app.state.orchestrator_busy && !app.orchestrator_input.trim().is_empty();
-        if ui
-            .add_enabled(can_send, egui::Button::new("Enviar"))
-            .on_hover_text("Ctrl+Enter")
-            .clicked()
-        {
-            app.send_orchestrator();
-        }
-        if app.state.orchestrator_busy {
-            ui.spinner();
-            ui.label(RichText::new("esperando respuesta…").weak().small());
-        }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(RichText::new(&project.name).weak().small());
-        });
-    });
-    if submit && editor.has_focus() {
-        app.send_orchestrator();
-    }
 }
 
 fn bubble(ui: &mut egui::Ui, app: &mut Studio, message: &jcs_proto::OrchestratorMessage) {
@@ -143,7 +188,7 @@ fn bubble(ui: &mut egui::Ui, app: &mut Studio, message: &jcs_proto::Orchestrator
                         .small(),
                 );
             });
-            ui.label(RichText::new(&message.text).size(13.5));
+            crate::ui::markdown::render(ui, &message.text);
             if !user
                 && ui
                     .small_button("Crear objetivo con esta respuesta")

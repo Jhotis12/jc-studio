@@ -161,7 +161,7 @@ fn assistant_message(ui: &mut egui::Ui, text: &str) {
                     .strong()
                     .color(Color32::from_rgb(150, 180, 230)),
             );
-            ui.label(RichText::new(text.trim()).monospace().size(12.5));
+            crate::ui::markdown::render(ui, text.trim());
         });
     ui.add_space(3.0);
 }

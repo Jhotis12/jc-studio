@@ -515,9 +515,9 @@ async fn handle(client: &Client, updates: &Sender<Update>, command: Command) {
             let updates = updates.clone();
             tokio::spawn(async move {
                 match client.orchestrator_send(&project, &prompt).await {
-                    Ok(messages) => {
-                        let _ = updates.send(Update::Orchestrator(messages));
-                    }
+                    // The answer arrives as orchestrator_text/finished events; the request
+                    // only starts the turn.
+                    Ok(_) => {}
                     Err(error) => {
                         let _ = updates.send(Update::OrchestratorFailed(error.to_string()));
                     }

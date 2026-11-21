@@ -24,6 +24,7 @@ nunca se renumera; si una decisión cambia, se escribe uno nuevo y el anterior p
 | [0013](0013-stage-progress-and-iteration.md) | Progreso por etapas y tareas iterables con feedback | Accepted |
 | [0014](0014-cost-from-catalog.md) | Coste calculado desde el catálogo cuando el backend reporta cero | Accepted |
 | [0015](0015-orchestrator-chat.md) | Chat del Orquestador separado de los objetivos y guard de saludos | Accepted |
+| [0016](0016-markdown-and-streaming.md) | Markdown local y streaming del Orquestador por el event log | Accepted |
 
 ## Cómo añadir una ADR
 

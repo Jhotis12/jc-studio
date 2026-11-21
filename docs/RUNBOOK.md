@@ -85,6 +85,12 @@ Para subir la concurrencia: **Ajustes → Concurrencia máxima → Guardar → R
 
 ### Orquestador
 
+El chat del Orquestador se escribe **en vivo** si el modelo emite deltas: verás el
+razonamiento y el texto por chunks (cada ~250 ms). Si el proveedor bufferiza la respuesta, verás
+el spinner/pensamiento hasta el final; no es un fallo del transporte. Las respuestas se
+renderizan como Markdown (encabezados, listas, tablas, código, negrita/cursiva); los enlaces se
+muestran como texto y URL, no se abren.
+
 La pestaña **Orquestador** es un chat persistente con el agente que recibe preguntas del
 proyecto. Sirve para explorar, pedir contexto o un plan. Cada respuesta tiene **«Crear
 objetivo con esta respuesta»**: abre el texto para editarlo, permite planificar y solo crea

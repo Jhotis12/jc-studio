@@ -371,6 +371,9 @@ impl Studio {
         if pressed(egui::Key::E) {
             self.tab = Tab::Extensions;
         }
+        if pressed(egui::Key::O) {
+            self.tab = Tab::Orchestrator;
+        }
         if pressed(egui::Key::Comma) {
             self.open_settings();
         }

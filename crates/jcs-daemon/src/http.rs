@@ -1168,7 +1168,7 @@ async fn orchestrator_history(
 async fn orchestrator_chat(
     State(state): State<AppState>,
     Json(request): Json<OrchestratorChatRequest>,
-) -> ApiResult<Json<Vec<OrchestratorMessage>>> {
+) -> ApiResult<Json<jcs_proto::OkResponse>> {
     let prompt = request.prompt.trim();
     if prompt.is_empty() {
         return Err(ApiError::bad_request(
@@ -1178,84 +1178,26 @@ async fn orchestrator_chat(
     }
     let project = resolve_project(&state, &request.project).await?;
 
-    let _guard = state.orchestrator_guard.lock().await;
+    // One turn at a time. The guard is moved into the background task and released when
+    // the answer finishes; the app receives the text through the normal event stream.
+    let guard = state
+        .orchestrator_guard
+        .clone()
+        .try_lock_owned()
+        .map_err(|_| {
+            ApiError::conflict(
+                "orchestrator_busy",
+                "the orchestrator is still answering the previous message",
+            )
+        })?;
+
     state
         .store
         .append_orchestrator_message(&project.id, "user", prompt)
         .await?;
+    crate::orchestrator::spawn_turn(state.clone(), project, prompt.to_string(), guard);
 
-    let agent = state.agent.get().await?;
-    let mut session_id = state.store.orchestrator_session(&project.id).await?;
-    if let Some(id) = &session_id {
-        if agent.session(id).await.is_err() {
-            // OpenCode restarted or archived the session; start a new one.
-            session_id = None;
-        }
-    }
-    let mut fresh = false;
-    let session_id = match session_id {
-        Some(id) => id,
-        None => {
-            let model = state
-                .planning_model()
-                .or_else(|| state.default_model())
-                .map(|reference| jcs_agent::ModelRef::parse(&reference))
-                .transpose()?;
-            let agent_name = state.planning_agent();
-            let session = agent
-                .create_session(jcs_agent::CreateSession {
-                    title: "orchestrator",
-                    directory: &project.root_path,
-                    model,
-                    agent: agent_name.as_deref(),
-                    permissions: None,
-                })
-                .await
-                .map_err(ApiError::from)?;
-            state
-                .store
-                .set_orchestrator_session(&project.id, &session.id)
-                .await?;
-            fresh = true;
-            session.id
-        }
-    };
-
-    let message = if fresh {
-        format!(
-            "You are the JC Studio orchestrator for the project {name} at {root}.              Talk with the operator, inspect the project when it helps, and answer their              questions. Do not modify files from this chat. When they want work executed,              propose a concrete objective; they will queue it separately.\n\nOperator: {prompt}",
-            name = project.name,
-            root = project.root_path.display(),
-        )
-    } else {
-        prompt.to_string()
-    };
-
-    agent
-        .prompt(&session_id, &message, "queue")
-        .await
-        .map_err(ApiError::from)?;
-    let reply = crate::planner::collect_response(&agent, &session_id)
-        .await
-        .map_err(|error| ApiError::internal(error.to_string()))?;
-    if !reply.trim().is_empty() {
-        state
-            .store
-            .append_orchestrator_message(&project.id, "assistant", reply.trim())
-            .await?;
-    }
-
-    let messages = state.store.orchestrator_messages(&project.id, 200).await?;
-    Ok(Json(
-        messages
-            .into_iter()
-            .map(|message| OrchestratorMessage {
-                role: message.role,
-                text: message.text,
-                created_at: message.created_at,
-            })
-            .collect(),
-    ))
+    Ok(Json(jcs_proto::OkResponse { ok: true }))
 }
 
 async fn orchestrator_reset(
@@ -1263,6 +1205,16 @@ async fn orchestrator_reset(
     Query(query): Query<ProjectQuery>,
 ) -> ApiResult<Json<jcs_proto::OkResponse>> {
     let project = resolve_project(&state, &query.project).await?;
+    let _guard = state
+        .orchestrator_guard
+        .clone()
+        .try_lock_owned()
+        .map_err(|_| {
+            ApiError::conflict(
+                "orchestrator_busy",
+                "wait for the current answer before clearing the conversation",
+            )
+        })?;
     if let Some(session_id) = state.store.orchestrator_session(&project.id).await? {
         if let Ok(agent) = state.agent.get().await {
             if let Err(error) = agent.interrupt(&session_id).await {

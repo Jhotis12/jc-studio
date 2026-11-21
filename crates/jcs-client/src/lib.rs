@@ -100,7 +100,7 @@ impl Client {
         &self,
         project: &str,
         prompt: &str,
-    ) -> Result<Vec<jcs_proto::OrchestratorMessage>> {
+    ) -> Result<jcs_proto::OkResponse> {
         let request = jcs_proto::OrchestratorChatRequest {
             project: project.to_string(),
             prompt: prompt.to_string(),

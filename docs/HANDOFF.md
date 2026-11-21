@@ -234,6 +234,11 @@ consola. La decisión y las alternativas están en la
 - Iteración: `tasks.instructions` (migración 0007) guarda la descripción del plan y el
   feedback. `POST /tasks/{id}/iterate` reintenta failed/blocked con instrucciones o crea una
   tarea dependiente para una succeeded. `merge-retry` limpia `merge_error`.
+- Streaming: el chat del Orquestador responde `POST` en milisegundos y emite
+  `orchestrator_text`/`orchestrator_reasoning` cada ~250 ms; el mensaje final se persiste y
+  llega `orchestrator_finished`. Las tareas ya usaban `agent_text` cada 300 ms. Depende del
+  proveedor: el gratuito probado bufferiza el texto hasta el final, `deepseek-v4.1-flash`
+  streama. Markdown local en `ui/markdown.rs` (sin `egui_commonmark`).
 - Orquestador: chat persistente por proyecto (`orchestrator_messages`/`orchestrator_sessions`,
   migración 0009), pestaña propia, prompt de rol sin modificar archivos. Cada respuesta
   ofrece «Crear objetivo con esta respuesta»: formulario editable + confirmación; el
@@ -281,6 +286,10 @@ consola. La decisión y las alternativas están en la
   logs, errores ni respuestas.
 - OpenCode puede devolver `cost: 0` con tokens > 0 (suscripción/créditos). No confiar en ese
   0: usar el precio del catálogo por millón y los tokens, y dejar los modelos gratuitos en 0.
+- No interpretar un `*` suelto como énfasis (`*.rs` es un glob); el renderizador exige
+  cierre y trata `[`/backtick sin pareja como literales para no entrar en bucles.
+- El streaming del texto depende del modelo; no prometer token a token si el proveedor
+  bufferiza. El razonamiento en vivo no se guarda en la conversación.
 - El coste del planificador, del revisor y del chat del Orquestador no está asociado a un run
   de tarea; hoy no entra en el total. Está anotado como pendiente.
 - «Hola» en el compositor creó 4 tareas leyendo OpenSpec: el planificador no distingue una

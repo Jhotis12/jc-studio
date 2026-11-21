@@ -5,7 +5,7 @@
 
 use std::collections::VecDeque;
 
-use jcs_core::Event;
+use jcs_core::{Event, EventKind};
 use jcs_proto::{
     GateRunResponse, GoalActionResponse, HealthResponse, McpServerEntry, MemoryIndexResponse,
     MemorySearchResponse, MemoryStatsView, ModelCatalogEntry, OrchestratorMessage, PolicyView,
@@ -162,6 +162,10 @@ pub struct State {
     pub skills: Vec<SkillCatalogEntry>,
     pub mcp: Vec<McpServerEntry>,
     pub orchestrator: Vec<OrchestratorMessage>,
+    /// Assistant text received from the live stream before the turn finishes.
+    pub orchestrator_streaming: String,
+    /// Reasoning received while the model is thinking.
+    pub orchestrator_reasoning: String,
     pub orchestrator_busy: bool,
     pub notice: Option<Notice>,
 }
@@ -178,11 +182,14 @@ impl State {
             Update::Offline(message) => {
                 self.connection = Some(Connection::Offline(message));
                 self.health = None;
+                self.orchestrator_busy = false;
+                self.orchestrator_streaming.clear();
+                self.orchestrator_reasoning.clear();
             }
             Update::Status(status) => self.apply_status(status),
             Update::History(events) => self.merge_history(events),
             Update::TaskHistory(events) => self.merge_history(events),
-            Update::Event(event) => self.push_event(event),
+            Update::Event(event) => self.push_event(event, true),
             Update::Notice { message, error } => self.notice = Some(Notice { message, error }),
             Update::Policy(policy) => self.policy = Some(policy),
             Update::Rendered(rendered) => {
@@ -227,7 +234,6 @@ impl State {
             Update::Skills(skills) => self.skills = skills,
             Update::Orchestrator(messages) => {
                 self.orchestrator = messages;
-                self.orchestrator_busy = false;
             }
             Update::OrchestratorFailed(message) => {
                 self.orchestrator_busy = false;
@@ -298,7 +304,59 @@ impl State {
         });
     }
 
-    fn push_event(&mut self, event: Event) {
+    fn push_event(&mut self, event: Event, live: bool) {
+        if matches!(
+            event.kind,
+            EventKind::OrchestratorText
+                | EventKind::OrchestratorReasoning
+                | EventKind::OrchestratorFinished
+        ) {
+            if !live {
+                // History is already in the chat table; replaying chunks would duplicate.
+                return;
+            }
+            let same_project =
+                event.project_id.as_ref().map(|id| id.as_str()) == self.selected_project.as_deref();
+            match event.kind {
+                EventKind::OrchestratorText => {
+                    self.orchestrator_busy = true;
+                    if same_project {
+                        if let Some(text) =
+                            event.payload.get("text").and_then(|value| value.as_str())
+                        {
+                            self.orchestrator_streaming.push_str(text);
+                        }
+                    }
+                }
+                EventKind::OrchestratorFinished => {
+                    self.orchestrator_busy = false;
+                    let text = event
+                        .payload
+                        .get("text")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default();
+                    if same_project && !text.trim().is_empty() {
+                        self.orchestrator.push(OrchestratorMessage {
+                            role: "assistant".to_string(),
+                            text: text.to_string(),
+                            created_at: event.ts,
+                        });
+                    }
+                    self.orchestrator_streaming.clear();
+                    self.orchestrator_reasoning.clear();
+                    if let Some(error) = event.payload.get("error").and_then(|value| value.as_str())
+                    {
+                        self.notice = Some(Notice {
+                            message: format!("el orquestador falló: {error}"),
+                            error: true,
+                        });
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+
         // The history seed and the live stream overlap; the sequence is the identity.
         if self.events.back().is_some_and(|line| line.seq >= event.seq)
             && self.events.iter().any(|line| line.seq == event.seq)
@@ -337,7 +395,7 @@ impl State {
     /// Merges historical events (global or per task) with the live stream.
     pub fn merge_history(&mut self, events: Vec<Event>) {
         for event in events {
-            self.push_event(event);
+            self.push_event(event, false);
         }
         let mut lines: Vec<_> = self.events.drain(..).collect();
         lines.sort_by_key(|line| line.seq);
@@ -662,11 +720,14 @@ mod tests {
     fn the_event_console_is_bounded() {
         let mut state = State::default();
         for seq in 1..=2200 {
-            state.push_event(event(
-                seq,
-                EventKind::AgentText,
-                serde_json::json!({ "text": format!("line {seq}") }),
-            ));
+            state.push_event(
+                event(
+                    seq,
+                    EventKind::AgentText,
+                    serde_json::json!({ "text": format!("line {seq}") }),
+                ),
+                false,
+            );
         }
         assert_eq!(state.events.len(), 2000);
         assert_eq!(state.events.front().unwrap().seq, 201);
@@ -675,8 +736,14 @@ mod tests {
     #[test]
     fn replayed_history_does_not_duplicate_lines() {
         let mut state = State::default();
-        state.push_event(event(7, EventKind::DaemonStarted, serde_json::json!({})));
-        state.push_event(event(7, EventKind::DaemonStarted, serde_json::json!({})));
+        state.push_event(
+            event(7, EventKind::DaemonStarted, serde_json::json!({})),
+            false,
+        );
+        state.push_event(
+            event(7, EventKind::DaemonStarted, serde_json::json!({})),
+            false,
+        );
         assert_eq!(state.events.len(), 1);
     }
 
@@ -686,7 +753,7 @@ mod tests {
         event.goal_id = Some(jcs_core::GoalId::new());
         let expected = event.goal_id.as_ref().unwrap().to_string();
         let mut state = State::default();
-        state.push_event(event);
+        state.push_event(event, false);
         assert_eq!(state.events[0].goal_id.as_deref(), Some(expected.as_str()));
     }
 

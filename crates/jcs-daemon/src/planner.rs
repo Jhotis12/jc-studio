@@ -169,7 +169,7 @@ pub(crate) async fn collect_response(agent: &OpenCodeClient, session_id: &str) -
 }
 
 /// Concatenates the text blocks of the newest assistant message.
-fn assistant_text(messages: &[serde_json::Value]) -> String {
+pub(crate) fn assistant_text(messages: &[serde_json::Value]) -> String {
     for message in messages {
         if message.get("type").and_then(|value| value.as_str()) != Some("assistant") {
             continue;

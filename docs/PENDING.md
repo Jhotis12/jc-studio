@@ -56,7 +56,7 @@ Cada entrada tiene una condición de salida; sin ella, no es una decisión, es u
 
 ## Coste auxiliar
 
-El coste mostrado cubre los runs de cada tarea. Las sesiones del planificador y del revisor
-no tienen un `run` asociado y todavía no se suman al total; para contabilizarlas hace falta
-un registro de uso auxiliar (modelo, tokens y coste por sesión) o consultar su usage al
-cerrar la sesión.
+El coste mostrado cubre los runs de cada tarea. Las sesiones del planificador, del revisor y
+del chat del Orquestador no tienen un `run` asociado y todavía no se suman al total; para
+contabilizarlas hace falta un registro de uso auxiliar (modelo, tokens y coste por sesión) o
+consultar su usage al cerrar la sesión.

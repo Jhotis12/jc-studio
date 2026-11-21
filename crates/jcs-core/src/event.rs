@@ -96,6 +96,12 @@ event_kinds! {
     // memory
     MemoryIndexed => "memory_indexed",
 
+    // Project-level orchestrator chat. Text chunks are persisted as they stream; the
+    // finished event carries the complete answer (or the error).
+    OrchestratorText => "orchestrator_text",
+    OrchestratorReasoning => "orchestrator_reasoning",
+    OrchestratorFinished => "orchestrator_finished",
+
     // Something the operator should see. Not a crash log.
     Error => "error",
 }

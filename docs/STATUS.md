@@ -20,9 +20,9 @@ Si llegas aquí después de una compactación de contexto, el punto de entrada e
 | 5 — Revisión de código y seguridad | 6 | **completa** | 100 % |
 | 6 — Telegram | 4 | operativa | 85 % |
 | 7 — Hardening y distribución | 10 | casi completa (Linux empaquetado) | 80 % |
-| 8 — App de escritorio (egui) | 19 | funcional; faltan chat interactivo y PTY en daemon | 94 % |
+| 8 — App de escritorio (egui) | 19 | funcional; faltan chat interactivo y PTY en daemon | 95 % |
 
-- **Producto completo (backend + app): ~94 %.**
+- **Producto completo (backend + app): ~95 %.**
 - **MVP (fases 0–4): ~99 %.**
 
 El porcentaje mide alcance, no riesgo. La tesis arquitectónica (daemon durable, agente real,
@@ -126,6 +126,11 @@ El razonamiento y las alternativas están en la [ADR 0010](adr/0010-desktop-app-
       hay merges pendientes, el objetivo pasa a `blocked`/`failed` con `goal_stalled` en vez
       de quedarse `running` para siempre. `ensure_integration_branch` ya no escribe un evento
       por tick.
+- [x] 8.19 Markdown renderizado en las respuestas y streaming real del Orquestador:
+      `orchestrator_text`/`orchestrator_reasoning` cada ~250 ms, `orchestrator_finished` al
+      terminar, transcript persistido y render local de encabezados, listas, tablas, código e
+      inline. Con `deepseek-v4.1-flash`: primer razonamiento a 2,5 s y texto desde 6,1 s; el
+      modelo gratuito probado entrega el texto al final (limitación del proveedor).
 - [x] 8.18 El Orquestador puede **proponer** un objetivo y el operador convertirlo con un
       botón de confirmación y edición; no crea ni ejecuta nada por su cuenta. El objetivo
       creado pasa por el planificador normal.
@@ -163,7 +168,7 @@ API esté documentada y probada.
 
 | Comando | Qué demuestra |
 |---|---|
-| `cargo nextest run --workspace` | **333 tests** unitarios, de propiedad y de integración |
+| `cargo nextest run --workspace` | **336 tests** unitarios, de propiedad y de integración |
 | `just e2e` | objetivo → worktree → agente → gates → commit |
 | `just e2e-policy` | gate que exige un token: prueba el bucle de reparación |
 | `just e2e-plan` | objetivo → plan → DAG → tareas → entregables |
