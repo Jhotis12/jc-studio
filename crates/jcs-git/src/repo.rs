@@ -145,7 +145,8 @@ impl Repo {
             return Ok(None);
         }
 
-        self.must_git(&["commit", "-m", message, "--no-verify"]).await?;
+        self.must_git(&["commit", "-m", message, "--no-verify"])
+            .await?;
         // `--no-verify` because hooks that block automated commits would deadlock the
         // pipeline; policy is enforced by our own gates instead.
 
@@ -162,12 +163,7 @@ impl Repo {
     }
 
     /// Creates a worktree on a new branch cut from `base`.
-    pub async fn create_worktree(
-        &self,
-        path: &Path,
-        branch: &str,
-        base: &str,
-    ) -> Result<()> {
+    pub async fn create_worktree(&self, path: &Path, branch: &str, base: &str) -> Result<()> {
         if path.exists() {
             return Err(GitError::Refused(format!(
                 "worktree path {} already exists",
@@ -233,8 +229,7 @@ impl Repo {
                 }
             } else if let Some(branch) = line.strip_prefix("branch ") {
                 if let Some(worktree) = current.as_mut() {
-                    worktree.branch =
-                        Some(branch.trim_start_matches("refs/heads/").to_string());
+                    worktree.branch = Some(branch.trim_start_matches("refs/heads/").to_string());
                 }
             } else if line == "detached" {
                 if let Some(worktree) = current.as_mut() {
@@ -318,10 +313,7 @@ impl Repo {
         let output = self.git(args).await?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            let combined = format!(
-                "{stderr}{}",
-                String::from_utf8_lossy(&output.stdout)
-            );
+            let combined = format!("{stderr}{}", String::from_utf8_lossy(&output.stdout));
             if combined.contains("not a git repository") {
                 return Err(GitError::NotARepository {
                     path: self.root.clone(),

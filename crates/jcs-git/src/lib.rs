@@ -8,6 +8,6 @@ pub mod commit;
 pub mod error;
 pub mod repo;
 
-pub use commit::{branch_name, slugify, validate, CommitKind, ConventionalCommit};
+pub use commit::{branch_name, slugify, truncate_words, validate, CommitKind, ConventionalCommit};
 pub use error::{GitError, Result};
 pub use repo::{CommitOutcome, Repo, Worktree};

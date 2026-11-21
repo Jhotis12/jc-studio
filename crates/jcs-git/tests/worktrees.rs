@@ -40,7 +40,10 @@ async fn an_empty_directory_is_not_a_usable_repository() {
     let repo = Repo::new(dir.path());
 
     let error = repo.require_repository().await.unwrap_err();
-    assert!(matches!(error, GitError::NotARepository { .. }), "{error:?}");
+    assert!(
+        matches!(error, GitError::NotARepository { .. }),
+        "{error:?}"
+    );
 }
 
 #[tokio::test]
@@ -188,10 +191,7 @@ async fn a_dirty_worktree_needs_force_to_be_discarded() {
     std::fs::write(worktree_path.join("uncommitted.txt"), "work\n").unwrap();
 
     // Plain removal refuses: we never silently throw away work.
-    assert!(repo
-        .remove_worktree(&worktree_path, false)
-        .await
-        .is_err());
+    assert!(repo.remove_worktree(&worktree_path, false).await.is_err());
     assert!(worktree_path.join("uncommitted.txt").exists());
 
     // Explicit discard succeeds.

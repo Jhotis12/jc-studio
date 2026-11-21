@@ -133,15 +133,15 @@ pub fn validate(message: &str) -> Result<()> {
         ));
     }
 
-    let (prefix, summary) = header.split_once(": ").ok_or_else(|| {
-        GitError::InvalidMessage("expected `<type>(<scope>): <summary>`".into())
-    })?;
+    let (prefix, summary) = header
+        .split_once(": ")
+        .ok_or_else(|| GitError::InvalidMessage("expected `<type>(<scope>): <summary>`".into()))?;
 
     let (kind, scope) = match prefix.split_once('(') {
         Some((kind, rest)) => {
-            let scope = rest.strip_suffix(')').ok_or_else(|| {
-                GitError::InvalidMessage("unclosed scope parenthesis".into())
-            })?;
+            let scope = rest
+                .strip_suffix(')')
+                .ok_or_else(|| GitError::InvalidMessage("unclosed scope parenthesis".into()))?;
             if scope.is_empty() {
                 return Err(GitError::InvalidMessage("scope is empty".into()));
             }
@@ -220,6 +220,21 @@ pub fn slugify(input: &str) -> String {
         out.push_str("task");
     }
     out
+}
+
+/// Truncates to `max` characters without cutting a word in half.
+///
+/// Titles and commit summaries are read by humans; a summary ending in
+/// "containing exactly this single" looks like corruption, not compression.
+pub fn truncate_words(value: &str, max: usize) -> String {
+    if value.chars().count() <= max {
+        return value.to_string();
+    }
+    let cut: String = value.chars().take(max).collect();
+    match cut.rfind(' ') {
+        Some(index) if index > max / 2 => cut[..index].trim_end().to_string(),
+        _ => cut.trim_end().to_string(),
+    }
 }
 
 /// Builds the branch name for a task: `jcs/<goal-slug>/<task-suffix>`.
@@ -314,10 +329,27 @@ mod tests {
     fn slugs_are_ascii_bounded_and_dash_separated() {
         assert_eq!(slugify("Add email validation!"), "add-email-validation");
         assert_eq!(slugify("  multiple   spaces  "), "multiple-spaces");
-        assert_eq!(slugify("Añadir validación de correo"), "anadir-validacion-de-correo");
+        assert_eq!(
+            slugify("Añadir validación de correo"),
+            "anadir-validacion-de-correo"
+        );
         assert_eq!(slugify(""), "task");
         let long = slugify(&"x".repeat(200));
         assert!(long.chars().count() <= 40, "{long}");
+    }
+
+    #[test]
+    fn truncation_respects_word_boundaries() {
+        assert_eq!(truncate_words("short", 20), "short");
+        assert_eq!(
+            truncate_words(
+                "create a file named hello.md containing exactly this single line",
+                60
+            ),
+            "create a file named hello.md containing exactly this single"
+        );
+        // A single very long token is still cut, just without a trailing space.
+        assert_eq!(truncate_words(&"x".repeat(100), 10).chars().count(), 10);
     }
 
     #[test]
