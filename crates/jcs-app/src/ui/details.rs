@@ -29,16 +29,33 @@ pub fn goal(ui: &mut egui::Ui, app: &mut Studio) {
     let total = tasks.len();
     let succeeded = tasks
         .iter()
-        .filter(|task| task.status == "succeeded")
+        .filter(|task| task_progress(task).stage == crate::state::TaskStage::Done)
         .count();
-    let running = tasks.iter().filter(|task| task.status == "running").count();
+    let running = tasks
+        .iter()
+        .filter(|task| task_progress(task).stage.active())
+        .count();
     let verifying = tasks
         .iter()
         .filter(|task| task.status == "verifying")
         .count();
-    let pending = tasks.iter().filter(|task| task.status == "pending").count();
-    let blocked = tasks.iter().filter(|task| task.status == "blocked").count();
-    let failed = tasks.iter().filter(|task| task.status == "failed").count();
+    let pending = tasks
+        .iter()
+        .filter(|task| task_progress(task).stage == crate::state::TaskStage::Queued)
+        .count();
+    let blocked = tasks
+        .iter()
+        .filter(|task| {
+            matches!(
+                task_progress(task).stage,
+                crate::state::TaskStage::Blocked | crate::state::TaskStage::MergeFailed
+            )
+        })
+        .count();
+    let failed = tasks
+        .iter()
+        .filter(|task| task_progress(task).stage == crate::state::TaskStage::Failed)
+        .count();
     let (cost, tokens_in, tokens_out) = app.state.goal_cost(&goal.id);
     let running_run = app.state.running_run(&goal.id).cloned();
 

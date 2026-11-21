@@ -100,7 +100,9 @@ En el detalle de una tarea:
 - **Reintentar con indicaciones** (fallida/bloqueada): vuelve a la cola con las instrucciones
   nuevas y reutiliza su worktree.
 - **Reintentar integración** (merge fallido): limpia el error para que la cola lo intente de
-  nuevo. Resuelve antes el conflicto en el worktree; si no, fallará otra vez.
+  nuevo. Resuelve antes el conflicto en el worktree; si no, fallará otra vez. El flujo es
+  `cd <worktree>`, `git rebase jcs/goal/<id>`, resolver, `git add`, `git rebase --continue`
+  y pulsar el botón; o pide cambios a la tarea para que el agente lo haga.
 
 ### Gestionar objetivos
 

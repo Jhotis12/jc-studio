@@ -132,10 +132,16 @@ fn card(ui: &mut egui::Ui, app: &mut Studio, goal: &GoalView) {
     let total = tasks.len();
     let succeeded = tasks
         .iter()
-        .filter(|task| task.status == "succeeded")
+        .filter(|task| task_progress(task).stage == crate::state::TaskStage::Done)
         .count();
-    let running = tasks.iter().filter(|task| task.status == "running").count();
-    let pending = tasks.iter().filter(|task| task.status == "pending").count();
+    let running = tasks
+        .iter()
+        .filter(|task| task_progress(task).stage.active())
+        .count();
+    let pending = tasks
+        .iter()
+        .filter(|task| task_progress(task).stage == crate::state::TaskStage::Queued)
+        .count();
     let (cost, _, _) = app.state.goal_cost(&goal.id);
 
     let frame = egui::Frame::group(ui.style()).fill(if selected {
