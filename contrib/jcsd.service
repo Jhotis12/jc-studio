@@ -15,11 +15,14 @@ RestartSec=3s
 KillSignal=SIGTERM
 TimeoutStopSec=20
 
-# Hardening: the daemon only needs its own data dir and the user's runtime dir.
+# Hardening that does not break the product:
+#   * `strict`/`read-only` made OpenCode's own log write fail (it runs as a dependency of
+#     the daemon) and would make git promotion into repositories under $HOME impossible.
+#   * `full` keeps the system directories read-only while leaving the user's repositories
+#     and OpenCode state writable, which is exactly what the daemon operates on.
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=read-only
+ProtectSystem=full
 ReadWritePaths=%h/.local/share/jcs
 StateDirectory=jcs
 RuntimeDirectory=jcs

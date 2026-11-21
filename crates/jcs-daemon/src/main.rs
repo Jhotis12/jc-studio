@@ -268,3 +268,16 @@ async fn shutdown_signal() {
         _ = terminate => {},
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// The packaged unit must remain able to do the product's work: write to the user's
+    /// repositories (git promotion, rendered policy) and to OpenCode's own state.
+    #[test]
+    fn the_service_unit_does_not_make_the_home_read_only() {
+        let unit = include_str!("../../../contrib/jcsd.service");
+        assert!(!unit.contains("ProtectHome=read-only"), "{unit}");
+        assert!(!unit.contains("ProtectSystem=strict"), "{unit}");
+        assert!(unit.contains("ProtectSystem=full"), "{unit}");
+    }
+}
