@@ -351,6 +351,18 @@ impl Store {
         Ok(())
     }
 
+    /// Removes the gate results of a run.
+    ///
+    /// Called before each verification attempt: the run's gate list should describe the
+    /// latest attempt, while the event log keeps the full history of every attempt.
+    pub async fn clear_gate_results(&self, run_id: &RunId) -> Result<()> {
+        sqlx::query("DELETE FROM gate_results WHERE run_id = ?")
+            .bind(run_id.as_str())
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
     pub async fn list_gate_results(&self, run_id: &RunId) -> Result<Vec<GateResult>> {
         let rows: Vec<GateResultRow> = sqlx::query_as(
             "SELECT name, status, exit_code, duration_ms FROM gate_results \

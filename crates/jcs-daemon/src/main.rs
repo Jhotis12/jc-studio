@@ -92,7 +92,10 @@ async fn main() -> Result<()> {
             .with_context(|| format!("cannot open {}", config.db_path.display()))?,
     );
 
-    let state = AppState::new(store, Arc::new(config.clone()));
+    let packs = jcs_policy::loader::load_all(config.packs_dir.as_deref())
+        .context("cannot load policy packs")?;
+
+    let state = AppState::new(store, Arc::new(config.clone()), Arc::new(packs));
 
     // Crash recovery: a `started` run means the previous process died mid-flight.
     // Recovery must never prevent the daemon from booting: refusing to start would leave
@@ -155,6 +158,8 @@ async fn main() -> Result<()> {
         socket = %config.socket_path.display(),
         max_concurrent = config.max_concurrent,
         allow_shell = config.allow_shell,
+        default_packs = ?config.default_packs,
+        repair_cycles = config.max_repair_cycles,
         "starting jcsd"
     );
 

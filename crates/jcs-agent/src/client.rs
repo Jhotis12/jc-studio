@@ -70,10 +70,39 @@ pub struct AgentSession {
 #[derive(Debug, Clone, Deserialize)]
 pub struct SessionState {
     pub id: String,
+    /// The backend's own verdict for the last completed turn. It persists across prompts,
+    /// so it is only meaningful together with `time.is_idle()`.
     #[serde(default)]
     pub outcome: Option<String>,
     #[serde(default)]
     pub cost: Option<f64>,
+    #[serde(default)]
+    pub time: SessionTime,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+pub struct SessionTime {
+    /// Unix milliseconds when the current turn started.
+    #[serde(default)]
+    pub busy: Option<i64>,
+    /// Unix milliseconds when the last turn finished.
+    #[serde(default)]
+    pub idle: Option<i64>,
+}
+
+impl SessionTime {
+    /// Whether the session is between turns *right now*.
+    ///
+    /// `outcome` is not cleared when a new prompt arrives (verified against 2.3.2), so the
+    /// only reliable way to tell "finished" from "finished last time" is comparing these
+    /// two timestamps. A session that never ran has no idle time and is not idle.
+    pub fn is_idle(&self) -> bool {
+        match (self.idle, self.busy) {
+            (Some(idle), Some(busy)) => idle > busy,
+            (Some(_), None) => true,
+            (None, _) => false,
+        }
+    }
 }
 
 /// Input for creating a session bound to a directory.
@@ -569,6 +598,26 @@ mod tests {
             r#"{"_tag":"UnauthorizedError","message":"Authentication required"}"#,
         );
         assert_eq!(message, "Authentication required");
+    }
+
+    #[test]
+    fn a_session_is_idle_only_after_the_current_turn_finished() {
+        // Never ran.
+        assert!(!SessionTime::default().is_idle());
+
+        // Running: busy is newer than the previous idle mark.
+        let time = SessionTime {
+            idle: Some(1_000),
+            busy: Some(2_000),
+        };
+        assert!(!time.is_idle());
+
+        // Finished: idle came after busy.
+        let time = SessionTime {
+            busy: Some(2_000),
+            idle: Some(2_100),
+        };
+        assert!(time.is_idle());
     }
 
     #[test]

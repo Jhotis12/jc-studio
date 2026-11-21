@@ -17,11 +17,14 @@ use bytes::Bytes;
 use futures_util::stream;
 use jcs_core::{EventKind, NewEvent, Project, ProjectId, RunStatus, StatusMachine, TaskStatus};
 use jcs_proto::{
-    AddProjectRequest, AskRequest, AskResponse, ErrorBody, GateView, GoalView, HealthResponse,
-    ProjectListResponse, ProjectResponse, ProjectView, RunDetailResponse, RunView, StatusResponse,
-    TaskView, Totals, PROTOCOL_HEADER, PROTOCOL_VERSION,
+    AddProjectRequest, AskRequest, AskResponse, ErrorBody, GateOutcomeView, GateRunRequest,
+    GateRunResponse, GateView, GoalView, HealthResponse, PackCatalogEntry, PolicyGateView,
+    PolicyPackView, PolicyRuleView, PolicyView, ProjectListResponse, ProjectResponse, ProjectView,
+    RenderPolicyRequest, RenderPolicyResponse, RenderedFileView, RunDetailResponse, RunView,
+    StatusResponse, TaskView, Totals, PROTOCOL_HEADER, PROTOCOL_VERSION,
 };
 use serde::Deserialize;
+use serde_json::json;
 
 use crate::error::{ApiError, ApiResult};
 use crate::executor::{self, TaskRequest};
@@ -43,6 +46,11 @@ pub fn router(state: AppState) -> Router {
         .route("/abort", post(abort))
         .route("/events", get(events))
         .route("/events/history", get(event_history))
+        .route("/policy", get(policy))
+        .route("/policy/packs", get(policy_packs))
+        .route("/policy/render", post(render_policy))
+        .route("/gates", get(gates))
+        .route("/gates/run", post(run_gates))
         .layer(middleware::from_fn(protocol_guard))
         .with_state(state)
 }
@@ -397,6 +405,233 @@ async fn abort(
 }
 
 #[derive(Debug, Deserialize)]
+struct ProjectQuery {
+    /// Project name or absolute path.
+    project: String,
+}
+
+async fn resolve_project(state: &AppState, reference: &str) -> ApiResult<Project> {
+    state
+        .store
+        .resolve_project(reference)
+        .await?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "project_not_found",
+                format!("no project matches {reference:?}; add it with `jcs project add <path>`"),
+            )
+        })
+}
+
+fn compile_policy(state: &AppState, project: &Project) -> ApiResult<jcs_policy::Compiled> {
+    jcs_policy::compile(
+        &project.root_path,
+        &state.packs,
+        &state.config.default_packs,
+    )
+    .map_err(|error| ApiError::bad_request("policy_error", error.to_string()))
+}
+
+fn parser_label(parser: jcs_gates::ParserKind) -> &'static str {
+    match parser {
+        jcs_gates::ParserKind::ExitCode => "exit_code",
+        jcs_gates::ParserKind::Generic => "generic",
+        jcs_gates::ParserKind::Cargo => "cargo",
+        jcs_gates::ParserKind::Node => "node",
+        jcs_gates::ParserKind::Coverage => "coverage",
+    }
+}
+
+fn file_state_label(state: jcs_policy::FileState) -> &'static str {
+    match state {
+        jcs_policy::FileState::Created => "created",
+        jcs_policy::FileState::Updated => "updated",
+        jcs_policy::FileState::Unchanged => "unchanged",
+        jcs_policy::FileState::Drifted => "drifted",
+        jcs_policy::FileState::Missing => "missing",
+        jcs_policy::FileState::Refused => "refused",
+    }
+}
+
+fn gate_views(compiled: &jcs_policy::Compiled) -> Vec<PolicyGateView> {
+    compiled
+        .composition
+        .gates
+        .iter()
+        .map(|(name, entry)| PolicyGateView {
+            name: name.clone(),
+            command: entry.def.command.clone(),
+            timeout_secs: entry.def.timeout.as_secs(),
+            required: entry.def.required,
+            parser: parser_label(entry.def.parser).to_string(),
+            source: entry.source.clone(),
+        })
+        .collect()
+}
+
+async fn policy(
+    State(state): State<AppState>,
+    Query(query): Query<ProjectQuery>,
+) -> ApiResult<Json<PolicyView>> {
+    let project = resolve_project(&state, &query.project).await?;
+    let compiled = compile_policy(&state, &project)?;
+
+    // Drift is read-only here: report what `render --check` would say, never write.
+    let report = jcs_policy::apply(&compiled, &project.root_path, true, false)
+        .map_err(|error| ApiError::bad_request("policy_error", error.to_string()))?;
+    let drift = report
+        .files
+        .iter()
+        .filter(|file| file.state != jcs_policy::FileState::Unchanged)
+        .map(|file| file.path.clone())
+        .collect();
+
+    Ok(Json(PolicyView {
+        project: project.name.clone(),
+        packs: compiled
+            .composition
+            .packs
+            .iter()
+            .map(|pack| PolicyPackView {
+                id: pack.id.clone(),
+                version: pack.version.clone(),
+                hash: pack.hash.clone(),
+                description: pack.description.clone(),
+            })
+            .collect(),
+        rules: compiled
+            .composition
+            .rules
+            .iter()
+            .map(|(key, entry)| PolicyRuleView {
+                key: key.clone(),
+                value: entry.value.clone(),
+                source: entry.source.clone(),
+            })
+            .collect(),
+        gates: gate_views(&compiled),
+        skills: compiled.composition.skills.clone(),
+        drift,
+    }))
+}
+
+async fn policy_packs(State(state): State<AppState>) -> Json<Vec<PackCatalogEntry>> {
+    Json(
+        state
+            .packs
+            .values()
+            .map(|pack| PackCatalogEntry {
+                id: pack.id.clone(),
+                version: pack.version.clone(),
+                description: pack.description.clone(),
+                gates: pack.gates.gates.len(),
+                requires: pack.requires.clone(),
+            })
+            .collect(),
+    )
+}
+
+async fn render_policy(
+    State(state): State<AppState>,
+    Json(request): Json<RenderPolicyRequest>,
+) -> ApiResult<Json<RenderPolicyResponse>> {
+    let project = resolve_project(&state, &request.project).await?;
+    let compiled = compile_policy(&state, &project)?;
+
+    let report = jcs_policy::apply(&compiled, &project.root_path, request.check, request.force)
+        .map_err(|error| ApiError::bad_request("policy_error", error.to_string()))?;
+
+    let files: Vec<RenderedFileView> = report
+        .files
+        .iter()
+        .map(|file| RenderedFileView {
+            path: file.path.clone(),
+            state: file_state_label(file.state).to_string(),
+            detail: file.detail.clone(),
+        })
+        .collect();
+
+    if !request.check {
+        let event = NewEvent::new(EventKind::PolicyRendered)
+            .project(&project.id)
+            .payload(json!({
+                "packs": compiled.composition.pack_ids(),
+                "files": files
+                    .iter()
+                    .map(|file| json!({ "path": file.path, "state": file.state }))
+                    .collect::<Vec<_>>(),
+            }));
+        jcs_store::append_event(&state.store, event).await?;
+    }
+
+    Ok(Json(RenderPolicyResponse {
+        ok: report.ok(),
+        check: request.check,
+        files,
+    }))
+}
+
+async fn gates(
+    State(state): State<AppState>,
+    Query(query): Query<ProjectQuery>,
+) -> ApiResult<Json<Vec<PolicyGateView>>> {
+    let project = resolve_project(&state, &query.project).await?;
+    let compiled = compile_policy(&state, &project)?;
+    Ok(Json(gate_views(&compiled)))
+}
+
+async fn run_gates(
+    State(state): State<AppState>,
+    Json(request): Json<GateRunRequest>,
+) -> ApiResult<Json<GateRunResponse>> {
+    let project = resolve_project(&state, &request.project).await?;
+    let compiled = compile_policy(&state, &project)?;
+    let mut set = compiled.composition.gate_set();
+
+    if let Some(name) = &request.gate {
+        let def = set.gates.get(name).cloned().ok_or_else(|| {
+            ApiError::not_found(
+                "gate_not_found",
+                format!("no gate {name:?} in the project policy; run `jcs gates list`"),
+            )
+        })?;
+        set.gates.clear();
+        set.gates.insert(name.clone(), def);
+    }
+
+    if set.is_empty() {
+        return Err(ApiError::bad_request(
+            "no_gates",
+            "this project has no gates; select packs in .jcs/policy.toml and run `jcs policy render`",
+        ));
+    }
+
+    // Runs in the main checkout on purpose: this is a diagnostic command, not part of a
+    // task. Task execution always runs gates inside the task's isolated worktree.
+    let outcomes = jcs_gates::run_all(&set, &project.root_path).await;
+    let ok = jcs_gates::GateSet::all_required_passed(&outcomes, &set);
+
+    Ok(Json(GateRunResponse {
+        ok,
+        outcomes: outcomes
+            .iter()
+            .map(|outcome| GateOutcomeView {
+                name: outcome.name.clone(),
+                status: outcome.status.as_str().to_string(),
+                exit_code: outcome.exit_code,
+                duration_ms: outcome.duration_ms,
+                excerpt: outcome.excerpt.clone(),
+                findings: outcome
+                    .findings
+                    .iter()
+                    .map(|finding| finding.message.clone())
+                    .collect(),
+            })
+            .collect(),
+    }))
+}
+
+#[derive(Debug, Deserialize)]
 struct EventsQuery {
     #[serde(default)]
     since: i64,
@@ -546,8 +781,15 @@ mod tests {
             default_agent: None,
             allow_shell: false,
             run_timeout_secs: 60,
+            packs_dir: None,
+            default_packs: Vec::new(),
+            max_repair_cycles: 0,
         });
-        AppState::new(store, config)
+        AppState::new(
+            store,
+            config,
+            Arc::new(jcs_policy::loader::builtin_packs().unwrap()),
+        )
     }
 
     async fn send(

@@ -165,30 +165,80 @@ async fn run_task(state: &AppState, request: &TaskRequest) -> Result<()> {
         .await
         .context("cannot deliver the initial prompt")?;
 
-    // 3. Follow the execution until the backend states an outcome, the agent asks a
-    //    question, or the run exceeds its budget.
-    match pump_events(state, request, &session.id).await? {
-        PumpResult::Finished(ExecutionOutcome::Succeeded) => {
-            state
-                .store
-                .set_task_status(&task.id, TaskStatus::Verifying)
-                .await?;
-            finalize_success(state, request, &task, &goal, &project, &worktree, &branch).await
+    // 3. Execute, verify, and repair until the gates agree with the agent.
+    let mut repair_cycles = 0usize;
+
+    loop {
+        match pump_events(state, request, &session.id).await? {
+            PumpResult::Finished(ExecutionOutcome::Succeeded) => {}
+            PumpResult::Finished(ExecutionOutcome::Failed) => {
+                return Err(anyhow!("the agent reported that the execution failed"));
+            }
+            PumpResult::Finished(ExecutionOutcome::Interrupted) => {
+                return Err(anyhow!("the execution was interrupted before it completed"));
+            }
+            // A question is a human decision, not a hang: park the task and release the run.
+            PumpResult::NeedsInput(question) => {
+                return block_for_input(state, request, &task, &goal, &question).await;
+            }
+            PumpResult::TimedOut => {
+                return Err(anyhow!(
+                    "the run exceeded its {}s budget and was stopped",
+                    state.config.run_timeout_secs
+                ));
+            }
         }
-        PumpResult::Finished(ExecutionOutcome::Failed) => {
-            Err(anyhow!("the agent reported that the execution failed"))
+
+        state
+            .store
+            .set_task_status(&task.id, TaskStatus::Verifying)
+            .await?;
+
+        // The run's gate list should describe the latest attempt; the event log keeps
+        // every attempt.
+        state.store.clear_gate_results(&request.run_id).await?;
+        let verification = run_project_gates(state, &project, &worktree, &request.run_id).await?;
+
+        if verification.passed {
+            return finalize_success(state, request, &task, &goal, &project, &worktree, &branch)
+                .await;
         }
-        PumpResult::Finished(ExecutionOutcome::Interrupted) => {
-            Err(anyhow!("the execution was interrupted before it completed"))
+
+        if repair_cycles >= state.config.max_repair_cycles {
+            let question = format!(
+                "verification failed after {repair_cycles} repair cycle(s); still failing: {}. \
+                 Inspect the worktree, fix the cause, or adjust the policy.",
+                verification.failed_gates.join(", ")
+            );
+            return block_for_input(state, request, &task, &goal, &question).await;
         }
-        // A question is a human decision, not a hang: park the task and release the run.
-        PumpResult::NeedsInput(question) => {
-            block_for_input(state, request, &task, &goal, &question).await
-        }
-        PumpResult::TimedOut => Err(anyhow!(
-            "the run exceeded its {}s budget and was stopped",
-            state.config.run_timeout_secs
-        )),
+
+        repair_cycles += 1;
+        tracing::warn!(
+            task = %task.id,
+            cycle = repair_cycles,
+            gates = ?verification.failed_gates,
+            "gates failed; asking the agent to repair"
+        );
+
+        // Verifying -> Running is a legal transition and records the loop honestly.
+        state
+            .store
+            .set_task_status(&task.id, TaskStatus::Running)
+            .await?;
+
+        agent
+            .prompt(
+                &session.id,
+                &repair_prompt(&verification.failed_gates, &verification.excerpt),
+                "queue",
+            )
+            .await
+            .context("cannot deliver the repair prompt")?;
+
+        // The previous turn's `outcome` persists in the backend. Wait until the new turn
+        // is actually running before subscribing again, or we would read a stale verdict.
+        wait_until_busy(&agent, &session.id).await;
     }
 }
 
@@ -310,14 +360,19 @@ async fn reconcile(
         .await
         .context("cannot read the agent session state")?;
 
-    if let Some(outcome) = session.outcome.as_deref() {
-        let outcome = match outcome {
-            "succeeded" => ExecutionOutcome::Succeeded,
-            "failed" => ExecutionOutcome::Failed,
-            "interrupted" => ExecutionOutcome::Interrupted,
-            other => return Err(anyhow!("the backend reported an unknown outcome {other:?}")),
-        };
-        return Ok(Some(PumpResult::Finished(outcome)));
+    // `outcome` is not cleared when a new prompt arrives, so it only describes the
+    // present when the session is between turns. Without this check, a repair prompt
+    // would immediately "succeed" with the previous turn's verdict.
+    if session.time.is_idle() {
+        if let Some(outcome) = session.outcome.as_deref() {
+            let outcome = match outcome {
+                "succeeded" => ExecutionOutcome::Succeeded,
+                "failed" => ExecutionOutcome::Failed,
+                "interrupted" => ExecutionOutcome::Interrupted,
+                other => return Err(anyhow!("the backend reported an unknown outcome {other:?}")),
+            };
+            return Ok(Some(PumpResult::Finished(outcome)));
+        }
     }
 
     if let Some(question) = cancel_pending_forms(&agent, session_id).await? {
@@ -545,6 +600,119 @@ fn decide(mode: PermissionMode, action: &str, allow_shell: bool) -> (&'static st
         ),
         PermissionMode::Auto => ("reject", "action is outside the auto-approved set"),
     }
+}
+
+/// Outcome of running a project's policy gates in a worktree.
+struct Verification {
+    passed: bool,
+    failed_gates: Vec<String>,
+    /// Bounded, per-gate output used to build the repair prompt.
+    excerpt: String,
+}
+
+/// Runs the project's gates inside the task worktree.
+///
+/// A project without a policy has no gates: the built-in commit gates still apply, so
+/// "no policy" cannot mean "nothing is checked".
+async fn run_project_gates(
+    state: &AppState,
+    project: &Project,
+    worktree: &std::path::Path,
+    run_id: &RunId,
+) -> Result<Verification> {
+    let compiled = jcs_policy::compile(
+        &project.root_path,
+        &state.packs,
+        &state.config.default_packs,
+    )
+    .map_err(|error| anyhow!("cannot compile the policy of {}: {error}", project.name))?;
+
+    let gates = compiled.composition.gate_set();
+    if gates.is_empty() {
+        return Ok(Verification {
+            passed: true,
+            failed_gates: Vec::new(),
+            excerpt: String::new(),
+        });
+    }
+
+    let outcomes = jcs_gates::run_all(&gates, worktree).await;
+
+    for outcome in &outcomes {
+        state
+            .store
+            .add_gate_result(
+                run_id,
+                &outcome.name,
+                outcome.status,
+                outcome.exit_code,
+                outcome.duration_ms,
+                Some(&outcome.excerpt),
+            )
+            .await?;
+    }
+
+    let passed = jcs_gates::GateSet::all_required_passed(&outcomes, &gates);
+    let failed_gates: Vec<String> = outcomes
+        .iter()
+        .filter(|outcome| outcome.failed())
+        .map(|outcome| outcome.name.clone())
+        .collect();
+
+    let excerpt = outcomes
+        .iter()
+        .filter(|outcome| outcome.failed())
+        .map(|outcome| format!("### {}\n{}", outcome.name, outcome.excerpt))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    Ok(Verification {
+        passed,
+        failed_gates,
+        excerpt: truncate_chars(&excerpt, 6_000),
+    })
+}
+
+fn repair_prompt(failed_gates: &[String], excerpt: &str) -> String {
+    format!(
+        "The verification gates failed: {}.\n\
+         Fix the underlying problems in this worktree, then reply with a brief summary.\n\
+         \n\
+         Rules:\n\
+         - Do not weaken, skip or delete tests to make them pass.\n\
+         - Do not edit gate configuration, policy files or CI configuration.\n\
+         - Do not use shell commands.\n\
+         \n\
+         Gate output:\n{excerpt}\n",
+        failed_gates.join(", ")
+    )
+}
+
+/// Waits until the backend reports the session as busy (a turn in progress).
+///
+/// Bounded: if the backend never flips the flag we proceed anyway and let the normal
+/// timeout and reconciliation handle it.
+async fn wait_until_busy(agent: &OpenCodeClient, session_id: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+
+    while Instant::now() < deadline {
+        match agent.session(session_id).await {
+            Ok(session) if session.time.busy.is_some() && !session.time.is_idle() => return,
+            Ok(_) => {}
+            Err(error) => {
+                tracing::debug!(error = %error, "cannot read session state while waiting for busy");
+                return;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+}
+
+fn truncate_chars(value: &str, max: usize) -> String {
+    if value.chars().count() <= max {
+        return value.to_string();
+    }
+    value.chars().take(max).collect::<String>() + "\n… (truncated)"
 }
 
 /// Parks a task that needs a human decision.
@@ -871,6 +1039,26 @@ mod tests {
                 "{title:?} produced invalid message {message:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_repair_prompt_names_the_gates_and_forbids_weakening_tests() {
+        let prompt = repair_prompt(
+            &["clippy".to_string(), "test".to_string()],
+            "error[E0308]: mismatched types",
+        );
+        assert!(prompt.contains("clippy, test"));
+        assert!(prompt.contains("Do not weaken, skip or delete tests"));
+        assert!(prompt.contains("error[E0308]"));
+        assert!(prompt.contains("Do not edit gate configuration"));
+    }
+
+    #[test]
+    fn long_gate_output_is_truncated_for_the_prompt() {
+        let huge = "x".repeat(20_000);
+        let truncated = truncate_chars(&huge, 1_000);
+        assert!(truncated.chars().count() < 1_100);
+        assert!(truncated.contains("truncated"));
     }
 
     #[test]

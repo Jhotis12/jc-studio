@@ -215,6 +215,103 @@ pub struct OkResponse {
     pub ok: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyPackView {
+    pub id: String,
+    pub version: String,
+    pub hash: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyRuleView {
+    pub key: String,
+    pub value: String,
+    /// Pack id that defined the rule, or `project`.
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyGateView {
+    pub name: String,
+    pub command: Vec<String>,
+    pub timeout_secs: u64,
+    pub required: bool,
+    pub parser: String,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyView {
+    pub project: String,
+    pub packs: Vec<PolicyPackView>,
+    pub rules: Vec<PolicyRuleView>,
+    pub gates: Vec<PolicyGateView>,
+    pub skills: Vec<String>,
+    /// Rendered files that differ from the policy, or are missing.
+    pub drift: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackCatalogEntry {
+    pub id: String,
+    pub version: String,
+    pub description: String,
+    pub gates: usize,
+    pub requires: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderPolicyRequest {
+    /// Project name or path.
+    pub project: String,
+    #[serde(default)]
+    pub check: bool,
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderedFileView {
+    pub path: String,
+    /// created | updated | unchanged | drifted | missing | refused
+    pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderPolicyResponse {
+    pub ok: bool,
+    pub check: bool,
+    pub files: Vec<RenderedFileView>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GateRunRequest {
+    pub project: String,
+    /// Run only this gate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GateOutcomeView {
+    pub name: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    pub duration_ms: i64,
+    pub excerpt: String,
+    pub findings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GateRunResponse {
+    pub ok: bool,
+    pub outcomes: Vec<GateOutcomeView>,
+}
+
 /// An event as it appears on the client stream.
 ///
 /// This is the domain event: one representation everywhere, so a client and the

@@ -13,7 +13,9 @@ pub mod error;
 pub mod events;
 pub mod sse;
 
-pub use client::{CreateSession, EventStream, ModelRef, OpenCodeClient, ServerInfo};
+pub use client::{
+    CreateSession, EventStream, ModelRef, OpenCodeClient, ServerInfo, SessionState, SessionTime,
+};
 pub use discovery::Endpoint;
 pub use error::{AgentError, Result};
 pub use events::{AgentEvent, ExecutionOutcome, ToolInvocation, Usage};

@@ -17,7 +17,9 @@ jcs-core = { workspace = true }
 jcs-proto = { workspace = true }
 jcs-store = { workspace = true }
 jcs-agent = { workspace = true }
+jcs-gates = { workspace = true }
 jcs-git = { workspace = true }
+jcs-policy = { workspace = true }
 
 anyhow = { workspace = true }
 axum = { workspace = true }

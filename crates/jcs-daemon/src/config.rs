@@ -19,6 +19,13 @@ pub struct Config {
     /// Hard ceiling for a single run. A session that never reports an outcome must be
     /// stopped, not waited on forever.
     pub run_timeout_secs: u64,
+    /// Extra packs directory, overriding built-ins by id (`JCS_PACKS_DIR`).
+    pub packs_dir: Option<PathBuf>,
+    /// Packs used when a project has no `.jcs/policy.toml`. Empty means "no policy":
+    /// only the built-in commit gates run.
+    pub default_packs: Vec<String>,
+    /// How many times a failed verification is sent back to the agent before escalating.
+    pub max_repair_cycles: usize,
 }
 
 impl Config {
@@ -35,6 +42,17 @@ impl Config {
                 Some("1") | Some("true") | Some("yes")
             ),
             run_timeout_secs: env_parse("JCS_RUN_TIMEOUT_SECS").unwrap_or(900).max(30),
+            packs_dir: std::env::var_os("JCS_PACKS_DIR").map(PathBuf::from),
+            default_packs: env_non_empty("JCS_DEFAULT_PACKS")
+                .map(|value| {
+                    value
+                        .split(',')
+                        .map(|part| part.trim().to_string())
+                        .filter(|part| !part.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            max_repair_cycles: env_parse("JCS_MAX_REPAIR_CYCLES").unwrap_or(2).min(5),
         }
     }
 }
