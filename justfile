@@ -41,7 +41,11 @@ cli *args:
 
 # Opt-in end-to-end test against a real OpenCode service
 e2e:
-    JCS_E2E=1 cargo test --workspace --all-targets -- --nocapture
+    ./scripts/e2e.sh
+
+# Kill the daemon mid-run and verify honest recovery
+chaos:
+    ./scripts/chaos.sh
 
 # Audit dependencies for licenses and advisories
 audit:

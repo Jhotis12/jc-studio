@@ -55,7 +55,16 @@ Un commit no debe mezclar refactor y cambio de comportamiento: eso hace el rever
 - Unitarios: dentro del crate, en `#[cfg(test)]`.
 - Integración: `tests/` por crate, con `tempfile` para estado en disco.
 - Property tests con `proptest` para máquinas de estados.
-- El test end-to-end real contra OpenCode es **opt-in** (`JCS_E2E=1`) y usa un modelo barato.
+- **Socket real**: `crates/jcs-daemon/tests/socket.rs` arranca el binario `jcsd` y habla con él
+  por el UDS (exclusividad, socket obsoleto, permisos). No necesita modelo ni OpenCode.
+- **End-to-end real**: `just e2e` — objetivo → worktree → agente → gates → commit, con
+  aserciones sobre el contenido del commit. Requiere `opencode service status` y usa un
+  modelo gratuito por defecto (`JCS_E2E_MODEL` para cambiarlo).
+- **Durabilidad**: `just chaos` — `kill -9` a mitad de run, reinicio, y verificación de
+  `interrupted` + `blocked`, cero commits parciales y un run posterior correcto.
+
+Los dos últimos son la evidencia de las afirmaciones del README; si fallan, el producto no
+está terminado.
 
 ## Seguridad
 

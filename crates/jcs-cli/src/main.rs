@@ -55,6 +55,8 @@ enum Command {
         /// Run id, as printed by `jcs ask`.
         run: String,
     },
+    /// Check that the daemon is answering, without touching the backend.
+    Ping,
     /// Verify the local installation end to end.
     Doctor,
 }
@@ -155,6 +157,15 @@ async fn main() -> Result<()> {
         Command::Abort { run } => {
             client.abort(&run).await?;
             println!("aborted {run}");
+            Ok(())
+        }
+        Command::Ping => {
+            client.health().await?;
+            if json {
+                println!("{{\"ok\":true}}");
+            } else {
+                println!("ok");
+            }
             Ok(())
         }
         Command::Doctor => doctor(&client).await,

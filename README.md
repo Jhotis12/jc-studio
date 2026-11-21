@@ -130,6 +130,9 @@ Contrato con OpenCode: [`docs/contracts/`](docs/contracts/).
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+just e2e        # end-to-end real (modelo gratuito, requiere opencode servicio activo)
+just chaos      # kill -9 a mitad de run y recuperación
+just audit      # licencias y avisos de dependencias
 ```
 
 `just` agrupa los comandos habituales (`just --list`).
