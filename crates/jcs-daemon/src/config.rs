@@ -37,6 +37,12 @@ pub struct Config {
     pub context_tokens: usize,
     /// Background memory sweep interval. 0 disables the sweep.
     pub memory_sweep_secs: u64,
+    /// Run a rubric review before committing a task. Off by default: it doubles model cost.
+    pub review: bool,
+    /// Model used for review; defaults to `default_model`.
+    pub review_model: Option<String>,
+    /// Maximum number of findings kept per review.
+    pub review_max_findings: usize,
 }
 
 impl Config {
@@ -70,6 +76,12 @@ impl Config {
             heartbeat_secs: env_parse("JCS_HEARTBEAT_SECS").unwrap_or(20).max(2),
             context_tokens: env_parse("JCS_CONTEXT_TOKENS").unwrap_or(1_500),
             memory_sweep_secs: env_parse("JCS_MEMORY_SWEEP_SECS").unwrap_or(300),
+            review: matches!(
+                env_non_empty("JCS_REVIEW").as_deref(),
+                Some("1") | Some("true") | Some("yes")
+            ),
+            review_model: env_non_empty("JCS_REVIEW_MODEL"),
+            review_max_findings: env_parse("JCS_REVIEW_MAX_FINDINGS").unwrap_or(10).min(50),
         }
     }
 }

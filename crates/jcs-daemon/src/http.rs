@@ -1071,6 +1071,9 @@ mod tests {
             heartbeat_secs: 20,
             context_tokens: 0,
             memory_sweep_secs: 0,
+            review: false,
+            review_model: None,
+            review_max_findings: 10,
         });
         AppState::new(
             store,

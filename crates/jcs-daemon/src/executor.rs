@@ -230,7 +230,66 @@ async fn run_task(state: &AppState, dispatch: &TaskDispatch, guard: &LeaseGuard)
         let evaluation = crate::verify::evaluate(state, &project, &worktree).await?;
         evaluation.record(&state.store, &run_id).await?;
 
-        if evaluation.passed() {
+        let mut failures = evaluation.failed_names();
+        let mut excerpt = evaluation.excerpt(6_000);
+
+        // Review runs only after the executable checks pass: there is no point spending a
+        // model call reviewing code that does not compile.
+        if failures.is_empty() && state.config.review {
+            match crate::reviewer::review(state, &project, &goal, &task, &worktree, &base_branch)
+                .await
+            {
+                Ok(verdict) => {
+                    let status = if verdict.approve {
+                        GateStatus::Passed
+                    } else {
+                        GateStatus::Failed
+                    };
+                    state
+                        .store
+                        .add_gate_result(
+                            &run_id,
+                            "review",
+                            status,
+                            None,
+                            0,
+                            Some(&verdict.render()),
+                        )
+                        .await?;
+
+                    if !verdict.approve {
+                        tracing::warn!(
+                            task = %task.id,
+                            findings = verdict.blocking().count(),
+                            "review requested changes"
+                        );
+                        failures = vec!["review".to_string()];
+                        excerpt = verdict.render();
+                    }
+                }
+                Err(error) => {
+                    // A reviewer outage must not block work that already passed its gates.
+                    tracing::warn!(
+                        task = %task.id,
+                        error = %format!("{error:#}"),
+                        "review failed; continuing without it"
+                    );
+                    state
+                        .store
+                        .add_gate_result(
+                            &run_id,
+                            "review",
+                            GateStatus::Errored,
+                            None,
+                            0,
+                            Some(&format!("{error:#}")),
+                        )
+                        .await?;
+                }
+            }
+        }
+
+        if failures.is_empty() {
             return finalize_success(
                 state, dispatch, &run_id, &task, &project, &worktree, &branch,
             )
@@ -241,7 +300,7 @@ async fn run_task(state: &AppState, dispatch: &TaskDispatch, guard: &LeaseGuard)
             let question = format!(
                 "verification failed after {repair_cycles} repair cycle(s); still failing: {}. \
                  Inspect the worktree, fix the cause, or adjust the policy.",
-                evaluation.failed_names().join(", ")
+                failures.join(", ")
             );
             return block_for_input(state, dispatch, &run_id, &task, &question).await;
         }
@@ -250,8 +309,8 @@ async fn run_task(state: &AppState, dispatch: &TaskDispatch, guard: &LeaseGuard)
         tracing::warn!(
             task = %task.id,
             cycle = repair_cycles,
-            gates = ?evaluation.failed_names(),
-            "gates failed; asking the agent to repair"
+            checks = ?failures,
+            "verification failed; asking the agent to repair"
         );
 
         // Verifying -> Running is a legal transition and records the loop honestly.
@@ -261,11 +320,7 @@ async fn run_task(state: &AppState, dispatch: &TaskDispatch, guard: &LeaseGuard)
             .await?;
 
         agent
-            .prompt(
-                &session.id,
-                &repair_prompt(&evaluation.failed_names(), &evaluation.excerpt(6_000)),
-                "queue",
-            )
+            .prompt(&session.id, &repair_prompt(&failures, &excerpt), "queue")
             .await
             .context("cannot deliver the repair prompt")?;
 

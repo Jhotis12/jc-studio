@@ -342,6 +342,11 @@ impl Repo {
             .collect())
     }
 
+    /// Diff between `base` and the index, i.e. exactly what a commit would contain.
+    pub async fn diff_staged(&self, base: &str) -> Result<String> {
+        self.must_git(&["diff", "--cached", base]).await
+    }
+
     pub async fn diff_stat(&self, base: &str) -> Result<String> {
         self.must_git(&["diff", "--stat", &format!("{base}...HEAD")])
             .await

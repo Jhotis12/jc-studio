@@ -10,6 +10,7 @@ mod http;
 mod memory_service;
 mod merge;
 mod planner;
+mod reviewer;
 mod scheduler;
 mod state;
 mod uds;

@@ -111,7 +111,7 @@ async fn plan_in_session(
 /// subscription is established, and a missed terminal event would turn a good answer into a
 /// timeout. The authoritative source is the session state (idle or not) plus the stored
 /// messages, which are already durable on the backend.
-async fn collect_response(agent: &OpenCodeClient, session_id: &str) -> Result<String> {
+pub(crate) async fn collect_response(agent: &OpenCodeClient, session_id: &str) -> Result<String> {
     let deadline = std::time::Instant::now() + PLANNER_TIMEOUT;
 
     loop {

@@ -92,8 +92,14 @@ Orden recomendado. Cada paso es un commit que compila y con tests.
 
 `BoundaryRule` en `jcs-core`, comprobador en `jcs-memory::boundaries`, reglas en
 `.jcs/policy.toml` (`[[boundaries]]`) y veredicto integrado en `verify.rs` como gate
-`architecture`. 12 tests nuevos. Pendiente menor: permitir declarar boundaries en los packs,
-no solo a nivel de proyecto.
+`architecture`. Pendiente menor: permitir declarar boundaries en los packs.
+
+### 5.1 Revisor con rúbrica — HECHO
+
+`crates/jcs-daemon/src/reviewer.rs`: sesión dedicada, JSON estricto, findings con
+`archivo:línea`, `error` bloquea, `request_changes` sin `error` se degrada a aprobación.
+Opt-in con `JCS_REVIEW=1`; un fallo del revisor **no** bloquea trabajo que ya pasó gates
+(se registra como `errored`). Pendiente: revisión adversarial (segunda pasada).
 
 ### 5.2 Escaneo de secretos — HECHO
 
