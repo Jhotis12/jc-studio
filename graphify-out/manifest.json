@@ -690,9 +690,9 @@
     "semantic_hash": ""
   },
   "docs/STATUS.md": {
-    "mtime": 1795302919.855589,
-    "seen": 1795302955.5606225,
-    "ast_hash": "5974cf0f6344677c69a5a1441fc3d455",
+    "mtime": 1795303114.2120676,
+    "seen": 1795303124.0180292,
+    "ast_hash": "5e259334d92d80f9441a7a69f1198df0",
     "semantic_hash": ""
   },
   "docs/adr/0009-code-memory.md": {
@@ -720,9 +720,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-app/src/app.rs": {
-    "mtime": 1795302648.084399,
-    "seen": 1795302955.5572565,
-    "ast_hash": "f52db08bde155cc6cca11bbe797e80ce",
+    "mtime": 1795303084.999495,
+    "seen": 1795303124.0159245,
+    "ast_hash": "8bf1f26c4226c2c2b697831e3411c8eb",
     "semantic_hash": ""
   },
   "crates/jcs-app/src/daemon.rs": {
@@ -888,15 +888,15 @@
     "semantic_hash": ""
   },
   "docs/HANDOFF.md": {
-    "mtime": 1795302914.0440743,
-    "seen": 1795302955.5606167,
-    "ast_hash": "35397a5aa73d2a29bdcd2aeb00b24098",
+    "mtime": 1795303114.212291,
+    "seen": 1795303124.0180135,
+    "ast_hash": "33a670317154c72e7a5efe6c51c1f33a",
     "semantic_hash": ""
   },
   "docs/RUNBOOK.md": {
-    "mtime": 1795302882.2744632,
-    "seen": 1795302955.5606205,
-    "ast_hash": "a28dcdc67cca413b9a3c88d84ed12bc7",
+    "mtime": 1795303114.211708,
+    "seen": 1795303124.0180283,
+    "ast_hash": "82fe510dc7d80af6b8dd8145031b6f48",
     "semantic_hash": ""
   },
   "docs/adr/0010-desktop-app-egui.md": {
@@ -912,9 +912,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/code.rs": {
-    "mtime": 1795302714.7593226,
-    "seen": 1795302955.5573528,
-    "ast_hash": "9ca213812cfa42a3ea4a363c9c5406b6",
+    "mtime": 1795303088.5672157,
+    "seen": 1795303124.01601,
+    "ast_hash": "43d9b4ec4d13e53c333fe935bda6a8a6",
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/dag.rs": {
