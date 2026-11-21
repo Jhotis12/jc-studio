@@ -2,9 +2,7 @@ use sqlx::FromRow;
 
 use crate::error::{Result, StoreError};
 use crate::store::Store;
-use jcs_core::{
-    EventKind, GateStatus, NewEvent, Run, RunId, RunStatus, StatusMachine, TaskId,
-};
+use jcs_core::{EventKind, GateStatus, NewEvent, Run, RunId, RunStatus, StatusMachine, TaskId};
 
 #[derive(Debug, FromRow)]
 struct RunRow {
@@ -51,19 +49,17 @@ impl Store {
     pub async fn start_run(&self, task_id: &TaskId) -> Result<Run> {
         let mut tx = self.pool().begin().await?;
 
-        let goal_id: Option<String> =
-            sqlx::query_scalar("SELECT goal_id FROM tasks WHERE id = ?")
-                .bind(task_id.as_str())
-                .fetch_optional(&mut *tx)
-                .await?;
+        let goal_id: Option<String> = sqlx::query_scalar("SELECT goal_id FROM tasks WHERE id = ?")
+            .bind(task_id.as_str())
+            .fetch_optional(&mut *tx)
+            .await?;
         let goal_id = goal_id.ok_or_else(|| StoreError::not_found("task", task_id))?;
 
-        let attempt: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(MAX(attempt), 0) + 1 FROM runs WHERE task_id = ?",
-        )
-        .bind(task_id.as_str())
-        .fetch_one(&mut *tx)
-        .await?;
+        let attempt: i64 =
+            sqlx::query_scalar("SELECT COALESCE(MAX(attempt), 0) + 1 FROM runs WHERE task_id = ?")
+                .bind(task_id.as_str())
+                .fetch_one(&mut *tx)
+                .await?;
 
         let run = Run {
             id: RunId::new(),
@@ -140,7 +136,8 @@ impl Store {
                 .bind(run_id.as_str())
                 .fetch_optional(&mut *tx)
                 .await?;
-        let (current, task_id, _started_at) = row.ok_or_else(|| StoreError::not_found("run", run_id))?;
+        let (current, task_id, _started_at) =
+            row.ok_or_else(|| StoreError::not_found("run", run_id))?;
         let current = RunStatus::parse(&current)?;
         current.transition(status, "run")?;
 
@@ -156,7 +153,7 @@ impl Store {
         .await?;
 
         let run = self
-            .get_run_in(&mut *tx, run_id)
+            .get_run_in(&mut tx, run_id)
             .await?
             .ok_or_else(|| StoreError::not_found("run", run_id))?;
 

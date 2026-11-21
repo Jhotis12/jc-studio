@@ -13,6 +13,6 @@ pub mod store;
 pub mod tasks;
 
 pub use error::{Result, StoreError};
-pub use events::{count_events, events_for_task, events_since, latest_seq};
+pub use events::{count_events, events_for_task, events_since, latest_seq, recent_events};
 pub use runs::GateResult;
 pub use store::{append_event, Store};

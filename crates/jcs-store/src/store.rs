@@ -4,9 +4,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use sqlx::sqlite::{
-    SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous,
-};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{ConnectOptions, SqliteConnection, SqlitePool};
 use tracing::debug;
 
@@ -141,7 +139,10 @@ impl Store {
 ///
 /// Callers that mutate state MUST call this inside the same transaction so the event
 /// log and the projection can never disagree.
-pub(crate) async fn insert_event(conn: &mut SqliteConnection, event: &jcs_core::NewEvent) -> Result<i64> {
+pub(crate) async fn insert_event(
+    conn: &mut SqliteConnection,
+    event: &jcs_core::NewEvent,
+) -> Result<i64> {
     let payload = serde_json::to_string(&event.payload)?;
     let result = sqlx::query(
         "INSERT INTO events (id, ts, kind, project_id, goal_id, task_id, run_id, payload) \

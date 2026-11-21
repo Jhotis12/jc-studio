@@ -33,7 +33,9 @@ impl Store {
     pub async fn create_goal(&self, project_id: &ProjectId, prompt: &str) -> Result<Goal> {
         let prompt = prompt.trim();
         if prompt.is_empty() {
-            return Err(StoreError::Domain(jcs_core::CoreError::EmptyField { field: "prompt" }));
+            return Err(StoreError::Domain(jcs_core::CoreError::EmptyField {
+                field: "prompt",
+            }));
         }
 
         // Fail early with a clear message instead of a foreign-key violation.
@@ -126,7 +128,19 @@ impl Store {
         rows.into_iter().map(GoalRow::into_domain).collect()
     }
 
-    pub async fn list_goals_by_project(&self, project_id: &ProjectId, limit: i64) -> Result<Vec<Goal>> {
+    /// Total number of goals, independent of any list limit.
+    pub async fn goal_count(&self) -> Result<i64> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM goals")
+            .fetch_one(self.pool())
+            .await?;
+        Ok(count)
+    }
+
+    pub async fn list_goals_by_project(
+        &self,
+        project_id: &ProjectId,
+        limit: i64,
+    ) -> Result<Vec<Goal>> {
         let rows: Vec<GoalRow> = sqlx::query_as(&format!(
             "SELECT {GOAL_COLUMNS} FROM goals WHERE project_id = ? ORDER BY created_at DESC LIMIT ?"
         ))

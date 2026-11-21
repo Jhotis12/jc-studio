@@ -4,9 +4,7 @@ use sqlx::FromRow;
 
 use crate::error::{Result, StoreError};
 use crate::store::Store;
-use jcs_core::{
-    EventKind, GoalId, NewEvent, ProjectId, StatusMachine, Task, TaskId, TaskStatus,
-};
+use jcs_core::{EventKind, GoalId, NewEvent, ProjectId, StatusMachine, Task, TaskId, TaskStatus};
 
 #[derive(Debug, FromRow)]
 struct TaskRow {
@@ -44,7 +42,9 @@ impl Store {
     pub async fn create_task(&self, goal_id: &GoalId, title: &str) -> Result<Task> {
         let title = title.trim();
         if title.is_empty() {
-            return Err(StoreError::Domain(jcs_core::CoreError::EmptyField { field: "title" }));
+            return Err(StoreError::Domain(jcs_core::CoreError::EmptyField {
+                field: "title",
+            }));
         }
 
         if self.get_goal(goal_id).await?.is_none() {
@@ -119,18 +119,22 @@ impl Store {
     }
 
     /// Records the isolated worktree a task's agent is confined to.
-    pub async fn attach_worktree(&self, id: &TaskId, worktree: &Path, branch: &str) -> Result<Task> {
+    pub async fn attach_worktree(
+        &self,
+        id: &TaskId,
+        worktree: &Path,
+        branch: &str,
+    ) -> Result<Task> {
         let mut tx = self.pool().begin().await?;
 
-        let result = sqlx::query(
-            "UPDATE tasks SET worktree = ?, branch = ?, updated_at = ? WHERE id = ?",
-        )
-        .bind(worktree.to_string_lossy().to_string())
-        .bind(branch)
-        .bind(crate::store::encode_ts(chrono::Utc::now()))
-        .bind(id.as_str())
-        .execute(&mut *tx)
-        .await?;
+        let result =
+            sqlx::query("UPDATE tasks SET worktree = ?, branch = ?, updated_at = ? WHERE id = ?")
+                .bind(worktree.to_string_lossy().to_string())
+                .bind(branch)
+                .bind(crate::store::encode_ts(chrono::Utc::now()))
+                .bind(id.as_str())
+                .execute(&mut *tx)
+                .await?;
 
         if result.rows_affected() == 0 {
             return Err(StoreError::not_found("task", id));
@@ -237,6 +241,35 @@ impl Store {
         rows.into_iter().map(TaskRow::into_domain).collect()
     }
 
+    /// Parks tasks that were mid-flight when the daemon died.
+    ///
+    /// `Blocked` rather than `Failed` on purpose: a killed process proves nothing about
+    /// the work, so the task must not be counted as a failure nor silently retried in a
+    /// loop. It stays visible in `jcs status` until a human or the next goal touches it.
+    pub async fn block_orphaned_tasks(&self, reason: &str) -> Result<usize> {
+        let orphaned = self.recoverable_tasks().await?;
+        let mut count = 0;
+
+        for task in orphaned {
+            // Both `Running` and `Verifying` can reach `Blocked` directly. Going through
+            // `Failed` first is illegal by design (a killed process is not a failure) and
+            // made recovery abort daemon startup.
+            self.set_task_status(&task.id, TaskStatus::Blocked).await?;
+
+            let event = NewEvent::new(EventKind::Error)
+                .task(&task.id)
+                .payload(serde_json::json!({
+                    "reason": reason,
+                    "previous_status": task.status.as_str(),
+                    "recovery": "task parked as blocked; inspect with `jcs status`",
+                }));
+            crate::append_event(self, event).await?;
+            count += 1;
+        }
+
+        Ok(count)
+    }
+
     /// Project that owns a task, via its goal.
     pub async fn project_for_task(&self, task_id: &TaskId) -> Result<Option<ProjectId>> {
         let id: Option<String> = sqlx::query_scalar(
@@ -247,6 +280,14 @@ impl Store {
         .await?;
 
         id.map(ProjectId::parse).transpose().map_err(Into::into)
+    }
+
+    /// Total number of tasks, independent of any list limit.
+    pub async fn task_count(&self) -> Result<i64> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks")
+            .fetch_one(self.pool())
+            .await?;
+        Ok(count)
     }
 
     /// Whether the task has any worktree recorded yet.

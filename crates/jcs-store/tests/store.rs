@@ -90,13 +90,19 @@ async fn project_resolution_accepts_name_or_path() {
 #[tokio::test]
 async fn goal_and_task_transitions_are_enforced_by_the_store() {
     let (_dir, store, project) = fixture().await;
-    let goal = store.create_goal(&project.id, "ship the thing").await.unwrap();
+    let goal = store
+        .create_goal(&project.id, "ship the thing")
+        .await
+        .unwrap();
 
     // A goal cannot jump straight to success.
     let illegal = store.set_goal_status(&goal.id, GoalStatus::Succeeded).await;
     assert!(illegal.is_err(), "pending -> succeeded must be rejected");
 
-    store.set_goal_status(&goal.id, GoalStatus::Running).await.unwrap();
+    store
+        .set_goal_status(&goal.id, GoalStatus::Running)
+        .await
+        .unwrap();
     let succeeded = store
         .set_goal_status(&goal.id, GoalStatus::Succeeded)
         .await
@@ -114,8 +120,14 @@ async fn goal_and_task_transitions_are_enforced_by_the_store() {
         .set_task_status(&task.id, TaskStatus::Succeeded)
         .await
         .is_err());
-    store.set_task_status(&task.id, TaskStatus::Running).await.unwrap();
-    store.set_task_status(&task.id, TaskStatus::Verifying).await.unwrap();
+    store
+        .set_task_status(&task.id, TaskStatus::Running)
+        .await
+        .unwrap();
+    store
+        .set_task_status(&task.id, TaskStatus::Verifying)
+        .await
+        .unwrap();
     assert_eq!(
         store
             .set_task_status(&task.id, TaskStatus::Succeeded)
@@ -127,9 +139,18 @@ async fn goal_and_task_transitions_are_enforced_by_the_store() {
 
     // Retry from failed is explicit and counted.
     let retryable = store.create_task(&goal.id, "flaky").await.unwrap();
-    store.set_task_status(&retryable.id, TaskStatus::Running).await.unwrap();
-    store.set_task_status(&retryable.id, TaskStatus::Failed).await.unwrap();
-    store.set_task_status(&retryable.id, TaskStatus::Pending).await.unwrap();
+    store
+        .set_task_status(&retryable.id, TaskStatus::Running)
+        .await
+        .unwrap();
+    store
+        .set_task_status(&retryable.id, TaskStatus::Failed)
+        .await
+        .unwrap();
+    store
+        .set_task_status(&retryable.id, TaskStatus::Pending)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -208,6 +229,43 @@ async fn crashed_runs_become_interrupted_and_retryable() {
 }
 
 #[tokio::test]
+async fn orphaned_tasks_are_parked_as_blocked_not_failed() {
+    let (_dir, store, project) = fixture().await;
+    let goal = store.create_goal(&project.id, "goal").await.unwrap();
+    let running = store.create_task(&goal.id, "was running").await.unwrap();
+    let verifying = store.create_task(&goal.id, "was verifying").await.unwrap();
+
+    store
+        .set_task_status(&running.id, TaskStatus::Running)
+        .await
+        .unwrap();
+    store
+        .set_task_status(&verifying.id, TaskStatus::Running)
+        .await
+        .unwrap();
+    store
+        .set_task_status(&verifying.id, TaskStatus::Verifying)
+        .await
+        .unwrap();
+
+    let parked = store.block_orphaned_tasks("daemon died").await.unwrap();
+    assert_eq!(parked, 2);
+
+    // `Blocked`, not `Failed`: a killed process proves nothing about the work.
+    assert_eq!(
+        store.get_task(&running.id).await.unwrap().unwrap().status,
+        TaskStatus::Blocked
+    );
+    assert_eq!(
+        store.get_task(&verifying.id).await.unwrap().unwrap().status,
+        TaskStatus::Blocked
+    );
+
+    // Idempotent: nothing left in flight.
+    assert_eq!(store.block_orphaned_tasks("again").await.unwrap(), 0);
+}
+
+#[tokio::test]
 async fn event_log_is_monotonic_and_resumable() {
     let (_dir, store, project) = fixture().await;
     let goal = store.create_goal(&project.id, "goal").await.unwrap();
@@ -224,8 +282,12 @@ async fn event_log_is_monotonic_and_resumable() {
     assert_eq!(resumed.len(), all.len() - 2);
 
     // The log names the task it belongs to.
-    let timeline = jcs_store::events_for_task(&store, &task.id, 100).await.unwrap();
-    assert!(timeline.iter().any(|event| event.kind == EventKind::TaskCreated));
+    let timeline = jcs_store::events_for_task(&store, &task.id, 100)
+        .await
+        .unwrap();
+    assert!(timeline
+        .iter()
+        .any(|event| event.kind == EventKind::TaskCreated));
 }
 
 #[tokio::test]
@@ -239,7 +301,14 @@ async fn an_empty_gate_set_is_not_a_pass() {
     assert!(!store.all_gates_passed(&run.id).await.unwrap());
 
     store
-        .add_gate_result(&run.id, "build", jcs_core::GateStatus::Passed, Some(0), 12, None)
+        .add_gate_result(
+            &run.id,
+            "build",
+            jcs_core::GateStatus::Passed,
+            Some(0),
+            12,
+            None,
+        )
         .await
         .unwrap();
     assert!(store.all_gates_passed(&run.id).await.unwrap());

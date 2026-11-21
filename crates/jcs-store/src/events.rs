@@ -61,13 +61,35 @@ pub async fn events_since(store: &Store, since: i64, limit: i64) -> Result<Vec<E
 }
 
 /// Reads events for one task, oldest first. Used to rebuild a task timeline.
-pub async fn events_for_task(store: &Store, task_id: &jcs_core::TaskId, limit: i64) -> Result<Vec<Event>> {
+pub async fn events_for_task(
+    store: &Store,
+    task_id: &jcs_core::TaskId,
+    limit: i64,
+) -> Result<Vec<Event>> {
     let limit = limit.clamp(1, 5_000);
     let rows = sqlx::query(
         "SELECT seq, id, ts, kind, project_id, goal_id, task_id, run_id, payload \
          FROM events WHERE task_id = ? ORDER BY seq ASC LIMIT ?",
     )
     .bind(task_id.as_str())
+    .bind(limit)
+    .fetch_all(store.pool())
+    .await?;
+
+    rows.iter().map(row_to_event).collect()
+}
+
+/// The most recent `limit` events, oldest first.
+///
+/// Used by `jcs logs` and to locate a cursor before starting to follow a run.
+pub async fn recent_events(store: &Store, limit: i64) -> Result<Vec<Event>> {
+    let limit = limit.clamp(1, 5_000);
+    let rows = sqlx::query(
+        "SELECT seq, id, ts, kind, project_id, goal_id, task_id, run_id, payload FROM ( \
+             SELECT seq, id, ts, kind, project_id, goal_id, task_id, run_id, payload \
+             FROM events ORDER BY seq DESC LIMIT ? \
+         ) ORDER BY seq ASC",
+    )
     .bind(limit)
     .fetch_all(store.pool())
     .await?;
