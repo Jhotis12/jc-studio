@@ -76,6 +76,34 @@ impl Client {
         self.get(&format!("/runs/{id}")).await
     }
 
+    pub async fn policy(&self, project: &str) -> Result<jcs_proto::PolicyView> {
+        self.get(&format!("/policy?project={}", encode(project)))
+            .await
+    }
+
+    pub async fn policy_packs(&self) -> Result<Vec<jcs_proto::PackCatalogEntry>> {
+        self.get("/policy/packs").await
+    }
+
+    pub async fn render_policy(
+        &self,
+        request: &jcs_proto::RenderPolicyRequest,
+    ) -> Result<jcs_proto::RenderPolicyResponse> {
+        self.post("/policy/render", request).await
+    }
+
+    pub async fn gates(&self, project: &str) -> Result<Vec<jcs_proto::PolicyGateView>> {
+        self.get(&format!("/gates?project={}", encode(project)))
+            .await
+    }
+
+    pub async fn run_gates(
+        &self,
+        request: &jcs_proto::GateRunRequest,
+    ) -> Result<jcs_proto::GateRunResponse> {
+        self.post("/gates/run", request).await
+    }
+
     /// Bounded event history. With `since = None` it returns the most recent events.
     pub async fn event_history(
         &self,
@@ -174,6 +202,20 @@ impl Client {
             .await
             .context("the daemon closed the connection")
     }
+}
+
+/// Percent-encodes a query value without pulling in a URL crate.
+fn encode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
 async fn decode<T: DeserializeOwned>(path: &str, response: hyper::Response<Incoming>) -> Result<T> {
