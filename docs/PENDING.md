@@ -29,7 +29,10 @@ Cada entrada tiene una condición de salida; sin ella, no es una decisión, es u
 | Aprobación por *ruleset* al crear la sesión | No enviado: la precedencia de reglas no está verificada. Los packs ya declaran reglas y gates, pero no compilan todavía a `permission` de OpenCode | Fase 3, con una sonda que ejercite una herramienta real |
 | Renderizar `opencode.json` y `.opencode/agents/*.md` | No implementado a propósito: el esquema de configuración de OpenCode no está verificado contra una instancia, y generar config inválida es peor que no generarla. Hoy se renderizan `AGENTS.md`, `.jcs/gates.toml` y el lock | Fase 3, con una sonda que valide el esquema |
 | Resolución automática de conflictos de merge | No implementado a propósito: un conflicto bloquea el objetivo y espera a un humano | Nunca automático; `jcs resume` tras resolverlo |
-| Replanificación tras un fallo | No implementada: un plan fallido se puede relanzar con un objetivo nuevo | Fase 4, con memoria de intentos |
+| Replanificación tras un fallo | No implementada: un plan fallido se puede relanzar con un objetivo nuevo | Fase 5, con memoria de intentos |
+| *Watcher* de archivos para el índice | No implementado: el barrido periódico y el hash de contenido garantizan corrección, solo con más latencia | Fase 7 |
+| Extensión vectorial (`sqlite-vec`) | No implementada: el coseno acotado en Rust evita cargar extensiones dinámicas; el límite es explícito | Si el corpus supera los 5 000 chunks por proyecto |
+| Puente a `graphify` | No implementado: el indexador cubre los lenguajes de v1 | Si un proyecto JS/TS exige su resolución |
 | OpenSpec como flujo de cambios | No adoptado: las ADRs cubren las decisiones | Fase 2, si se quieren propuestas formales por pack |
 | `sqlx-cli` y `cargo-llvm-cov` | No instalados | Fase 5 (cobertura) |
 

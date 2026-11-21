@@ -17,6 +17,7 @@ nunca se renumera; si una decisión cambia, se escribe uno nuevo y el anterior p
 | [0006](0006-client-streaming-ndjson.md) | TUI ratatui y streaming NDJSON sobre UDS (no SSE para el cliente) | Accepted |
 | [0007](0007-pack-format-and-repair-loop.md) | Packs en TOML, composición determinista y bucle de reparación | Accepted |
 | [0008](0008-durable-orchestrator.md) | Orquestador durable: plan, DAG, leases y rama de integración | Accepted |
+| [0009](0009-code-memory.md) | Memoria de código: grafo, búsqueda híbrida y contexto citado | Accepted |
 
 ## Cómo añadir una ADR
 

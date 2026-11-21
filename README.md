@@ -18,7 +18,7 @@ Telegram      ─┘                            │
 
 ## Estado
 
-**Fases 0, 1, 2 y 3: completas.**
+**Fases 0, 1, 2, 3 y 4: completas.**
 
 Funciona de punta a punta: objetivo → worktree aislado → sesión de agente real → gates
 **definidos por la política del proyecto** → bucle de reparación acotado → commit
@@ -31,8 +31,12 @@ El orquestador descompone el objetivo en un DAG, ejecuta tareas en paralelo con 
 claims de rutas, integra cada commit en una rama de objetivo y promociona a la base cuando
 todo está verde. La TUI (`jcs tui`) muestra el tablero y el stream en vivo.
 
-Lo que **no** hay todavía (fases 4–7): grafo de código/RAG, revisor adversarial, Telegram,
-hardening de 72 h y empaquetado.
+La memoria indexa el código con tree-sitter (símbolos, imports, llamadas, tablas SQL),
+responde búsquedas híbridas (BM25 + grafo + embeddings opcionales) y **inyecta contexto
+citado** en el prompt de cada tarea.
+
+Lo que **no** hay todavía (fases 5–7): revisor adversarial, Telegram, hardening de 72 h y
+empaquetado.
 
 Avance por fase y evidencia: [`docs/STATUS.md`](docs/STATUS.md).
 Riesgos aceptados y decisiones diferidas: [`docs/PENDING.md`](docs/PENDING.md).
@@ -105,6 +109,12 @@ jcs gates run <proyecto> --gate clippy
 # TUI
 jcs tui
 
+# memoria de código
+jcs index                     # indexa el proyecto actual (incremental por hash)
+jcs index --force             # re-parsea todo
+jcs search -p servicio "validate_email"
+jcs memory -p servicio        # estadísticas del índice
+
 # objetivos: planificación y seguimiento
 jcs ask -p servicio "objetivo"        # planifica un DAG y lo sigue
 jcs ask -p servicio "objetivo" --no-plan   # una sola tarea
@@ -138,6 +148,22 @@ jcs project settings servicio --budget-usd 10 --budget-tokens 5000000
 
 `jcs project settings` sin flags muestra la configuración actual. Un objetivo bloqueado se
 reactiva con `jcs resume`, y las ramas de tarea se limpian al integrarse.
+
+### Memoria
+
+El índice vive en la misma base de datos del daemon y se actualiza por hash de contenido.
+Se dispara al registrar un proyecto, tras cada promoción a la base y en un barrido periódico.
+La búsqueda combina BM25, el grafo de llamadas y, si se configura, embeddings.
+
+```bash
+export JCS_EMBEDDING_URL=http://127.0.0.1:11434   # Ollama
+export JCS_EMBEDDING_MODEL=nomic-embed-text
+export JCS_EMBEDDING_FORMAT=ollama                # o openai
+```
+
+Sin proveedor, `jcs memory` lo reporta como `semantic search off` y todo lo demás sigue
+funcionando. El contexto inyectado se limita con `JCS_CONTEXT_TOKENS` (1500 por defecto, 0
+lo desactiva) y cada fragmento lleva su cita `archivo:línea-línea`.
 
 ### Política del proyecto
 
@@ -188,6 +214,7 @@ git -C ~/code/mi-servicio diff main...jcs/<rama>
 | `jcs-git` | Worktrees, commits convencionales, gates de limpieza. |
 | `jcs-gates` | Ejecución de gates: timeout con muerte del grupo, salida acotada, parsers tipados. |
 | `jcs-policy` | Packs, composición determinista, render, lock y detección de drift. |
+| `jcs-memory` | Índice tree-sitter, búsqueda híbrida y context broker con citas. |
 | `jcs-daemon` | `jcsd`: API sobre UDS, ejecutor de tareas, lifecycle. |
 | `jcs-cli` | `jcs`: TUI/CLI, cliente fino. |
 
@@ -204,6 +231,7 @@ just e2e        # end-to-end real (modelo gratuito, requiere opencode servicio a
 just e2e-policy # gate que exige un token: prueba que el bucle de reparación funciona
 just e2e-plan   # descomposición en DAG y ejecución de tareas
 just e2e-merge  # DAG + integración + promoción a la rama base
+just e2e-memory # índice, búsqueda con cita y contexto inyectado
 just chaos      # kill -9 a mitad de run y recuperación
 just audit      # licencias y avisos de dependencias
 ```

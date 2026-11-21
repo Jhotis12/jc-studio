@@ -13,13 +13,13 @@ si discrepan, gana el código.
 | 1 — Walking skeleton vertical | 5 | **completa** | 100 % |
 | 2 — Política como código y gates | 7 | **completa** | 100 % |
 | 3 — Orquestador durable y TUI | 12 | **casi completa** | 93 % |
-| 4 — Memoria: grafo + RAG | 10 | no iniciada | 0 % |
+| 4 — Memoria: grafo + RAG | 10 | **casi completa** | 90 % |
 | 5 — Revisión de código y seguridad | 6 | parcial (gates) | 10 % |
 | 6 — Telegram | 4 | no iniciada | 0 % |
 | 7 — Hardening y distribución | 10 | parcial | 25 % |
 
-- **v1 completo (fases 0–7): ~45 %.**
-- **MVP (fases 0–3): ~97 %.**
+- **v1 completo (fases 0–7): ~61 %.**
+- **MVP (fases 0–4): ~99 %.**
 
 El porcentaje mide alcance, no riesgo. La tesis arquitectónica (daemon durable, agente real,
 worktree aislado, gates, DAG, integración) está validada con tests y scripts.
@@ -34,6 +34,18 @@ worktree aislado, gates, DAG, integración) está validada con tests y scripts.
 - [x] 3.5 Merge queue: rebase, re-verificación, fast-forward, conflictos → bloqueo.
 - [x] 3.6 TUI: proyectos, objetivos, tareas, detalles, eventos, modal de objetivo, acciones.
 
+## Fase 4: qué falta exactamente
+
+- [x] 4.1 Índice tree-sitter: Rust, TS/JS, Python y SQL (tablas, índices, referencias).
+- [x] 4.2 Indexado incremental por hash, al registrar, tras promocionar y por barrido.
+- [ ] 4.2b *Watcher* de sistema de archivos: el barrido cada 5 minutos cubre la corrección;
+      `notify` queda como optimización.
+- [x] 4.3 Búsqueda híbrida: BM25 + grafo + embeddings opcionales (coseno acotado, sin
+      extensión vectorial).
+- [x] 4.4 Context broker con presupuesto de tokens y citas obligatorias.
+- [x] 4.5 Evaluación: recall@3 = 1.0 sobre el fixture.
+- [ ] 4.6 Puente a `graphify`: no necesario todavía; el indexador cubre los lenguajes de v1.
+
 ## Evidencia reproducible
 
 | Comando | Qué demuestra |
@@ -43,6 +55,7 @@ worktree aislado, gates, DAG, integración) está validada con tests y scripts.
 | `just e2e-policy` | gate que exige un token: prueba el bucle de reparación |
 | `just e2e-plan` | objetivo → plan → DAG → tareas → entregables |
 | `just e2e-merge` | DAG → integración → promoción a la base, sin ramas residuales |
+| `just e2e-memory` | índice → búsqueda citada → incremental → contexto en el prompt |
 | `just chaos` | `kill -9` a mitad de run → `interrupted` + `blocked`, sin commits parciales |
 | `just audit` | licencias y avisos de dependencias |
 
@@ -53,5 +66,5 @@ empaquetado en `sqlx` 0.9), aceptado con precondiciones y dos condiciones de sal
 
 ## Siguiente
 
-Fase 4: índice de código con tree-sitter, grafo en SQLite, búsqueda híbrida (FTS + vectores)
-y *context broker* con presupuesto de tokens y citas obligatorias.
+Fase 5: revisión de código con rúbrica y salida estructurada, suite estática completa,
+fitness functions arquitectónicas y enrutado por riesgo.
