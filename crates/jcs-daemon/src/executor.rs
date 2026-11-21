@@ -1191,18 +1191,35 @@ fn commit_message(project_name: &str, title: &str) -> jcs_git::Result<String> {
         .take(20)
         .collect::<String>();
 
-    let lowered = title.trim().trim_end_matches('.').to_lowercase();
-    let candidate = jcs_git::truncate_words(&lowered, 60);
-    let summary =
-        if !candidate.is_empty() && jcs_git::validate(&format!("feat: {candidate}")).is_ok() {
-            candidate
-        } else {
-            jcs_git::slugify(title)
-        };
+    // The 72-character limit applies to the whole header, including `feat(scope): `.
+    // Truncating the summary to 60 characters ignored the prefix and failed the task at
+    // commit time whenever the project name was long.
+    let prefix = if scope.is_empty() {
+        "feat: ".to_string()
+    } else {
+        format!("feat({scope}): ")
+    };
+    let budget = 72usize.saturating_sub(prefix.chars().count()).max(10);
 
-    ConventionalCommit::new(CommitKind::Feat, &summary)
-        .scope(&scope)
-        .render()
+    let lowered = title.trim().trim_end_matches('.').to_lowercase();
+    let candidate = jcs_git::truncate_words(&lowered, budget);
+    let valid = if candidate.is_empty() {
+        false
+    } else {
+        jcs_git::validate(&format!("{prefix}{candidate}")).is_ok()
+    };
+    let summary = if valid {
+        candidate
+    } else {
+        jcs_git::truncate_words(&jcs_git::slugify(title), budget)
+    };
+
+    let commit = ConventionalCommit::new(CommitKind::Feat, &summary);
+    if scope.is_empty() {
+        commit.render()
+    } else {
+        commit.scope(&scope).render()
+    }
 }
 
 fn truncate_json(value: &serde_json::Value, max: usize) -> String {
@@ -1249,6 +1266,18 @@ mod tests {
     #[test]
     fn unknown_actions_are_denied() {
         assert_eq!(decide(PermissionMode::Auto, "deploy", true).0, "reject");
+    }
+
+    #[test]
+    fn long_titles_and_scopes_still_fit_the_header() {
+        let message = commit_message(
+            "Un Proyecto Con Un Nombre Largo",
+            "Documentar frontend React y experiencia de usuario con todos los matices",
+        )
+        .unwrap();
+        let header = message.lines().next().unwrap();
+        assert!(header.chars().count() <= 72, "{header}");
+        assert!(jcs_git::validate(&message).is_ok(), "{message}");
     }
 
     #[test]
