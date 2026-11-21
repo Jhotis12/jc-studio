@@ -46,7 +46,13 @@ impl AgentError {
 
     /// True when the credential was rejected, as opposed to a missing service.
     pub fn is_auth_failure(&self) -> bool {
-        matches!(self, Self::Api { status: 401 | 403, .. })
+        matches!(
+            self,
+            Self::Api {
+                status: 401 | 403,
+                ..
+            }
+        )
     }
 }
 

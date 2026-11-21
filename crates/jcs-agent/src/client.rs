@@ -143,16 +143,22 @@ impl OpenCodeClient {
             request = request.json(&body);
         }
 
-        let response = request.send().await.map_err(|source| AgentError::Transport {
-            url: self.endpoint.base_url().to_string(),
-            source,
-        })?;
+        let response = request
+            .send()
+            .await
+            .map_err(|source| AgentError::Transport {
+                url: self.endpoint.base_url().to_string(),
+                source,
+            })?;
 
         let status = response.status();
-        let text = response.text().await.map_err(|source| AgentError::Transport {
-            url: self.endpoint.base_url().to_string(),
-            source,
-        })?;
+        let text = response
+            .text()
+            .await
+            .map_err(|source| AgentError::Transport {
+                url: self.endpoint.base_url().to_string(),
+                source,
+            })?;
 
         if !status.is_success() {
             return Err(AgentError::Api {
@@ -166,24 +172,32 @@ impl OpenCodeClient {
             return Ok(Value::Null);
         }
 
-        serde_json::from_str(&text).map_err(|e| {
-            AgentError::decode(path, format!("{e}: {}", truncate(&text, 300)))
-        })
+        serde_json::from_str(&text)
+            .map_err(|e| AgentError::decode(path, format!("{e}: {}", truncate(&text, 300))))
     }
 
     /// Liveness plus version detection.
     pub async fn health(&self) -> Result<ServerInfo> {
         let value = self
-            .request(reqwest::Method::GET, "/api/info", None, Some(REQUEST_TIMEOUT))
+            .request(
+                reqwest::Method::GET,
+                "/api/info",
+                None,
+                Some(REQUEST_TIMEOUT),
+            )
             .await?;
-        serde_json::from_value(value)
-            .map_err(|e| AgentError::decode("/api/info", e.to_string()))
+        serde_json::from_value(value).map_err(|e| AgentError::decode("/api/info", e.to_string()))
     }
 
     /// Projects the backend already knows about.
     pub async fn projects(&self) -> Result<Vec<Value>> {
         let value = self
-            .request(reqwest::Method::GET, "/api/project", None, Some(REQUEST_TIMEOUT))
+            .request(
+                reqwest::Method::GET,
+                "/api/project",
+                None,
+                Some(REQUEST_TIMEOUT),
+            )
             .await?;
         Ok(into_list(value))
     }
@@ -191,7 +205,12 @@ impl OpenCodeClient {
     /// Models available to this instance.
     pub async fn models(&self) -> Result<Vec<ModelRef>> {
         let value = self
-            .request(reqwest::Method::GET, "/api/model", None, Some(REQUEST_TIMEOUT))
+            .request(
+                reqwest::Method::GET,
+                "/api/model",
+                None,
+                Some(REQUEST_TIMEOUT),
+            )
             .await?;
         let mut models = Vec::new();
         for item in into_list(value) {
@@ -285,7 +304,10 @@ impl OpenCodeClient {
             .map_err(|e| AgentError::decode("/api/session/{id}", e.to_string()))
             .and_then(|state: SessionState| {
                 if state.id.is_empty() {
-                    Err(AgentError::decode("/api/session/{id}", "response has no id"))
+                    Err(AgentError::decode(
+                        "/api/session/{id}",
+                        "response has no id",
+                    ))
                 } else {
                     Ok(state)
                 }
@@ -332,6 +354,33 @@ impl OpenCodeClient {
             )
             .await?;
         Ok(into_list(unwrap_data(value)))
+    }
+
+    /// Interactive forms (questions, structured prompts) the session is waiting on.
+    ///
+    /// A batch orchestrator must not hang on these: they are surfaced as a blocked task
+    /// and cancelled, so the backend is not left holding a turn open.
+    pub async fn list_forms(&self, session_id: &str) -> Result<Vec<Value>> {
+        let value = self
+            .request(
+                reqwest::Method::GET,
+                &format!("/api/session/{session_id}/form"),
+                None,
+                Some(REQUEST_TIMEOUT),
+            )
+            .await?;
+        Ok(into_list(unwrap_data(value)))
+    }
+
+    pub async fn cancel_form(&self, session_id: &str, form_id: &str) -> Result<()> {
+        self.request(
+            reqwest::Method::DELETE,
+            &format!("/api/session/{session_id}/form/{form_id}"),
+            None,
+            Some(REQUEST_TIMEOUT),
+        )
+        .await?;
+        Ok(())
     }
 
     /// Answers a permission request: `once`, `always` or `reject`.
@@ -516,7 +565,9 @@ mod tests {
 
     #[test]
     fn api_errors_surface_the_server_message() {
-        let message = extract_error_message(r#"{"_tag":"UnauthorizedError","message":"Authentication required"}"#);
+        let message = extract_error_message(
+            r#"{"_tag":"UnauthorizedError","message":"Authentication required"}"#,
+        );
         assert_eq!(message, "Authentication required");
     }
 

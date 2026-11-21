@@ -7,6 +7,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+pub mod paths;
+
 /// Bumped on breaking changes. Clients send it in `x-jcs-protocol`.
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -239,7 +241,10 @@ mod tests {
 
     #[test]
     fn errors_carry_a_code_and_a_message() {
-        let body = ErrorBody::new("project_not_found", "no project named demo; run `jcs project add`");
+        let body = ErrorBody::new(
+            "project_not_found",
+            "no project named demo; run `jcs project add`",
+        );
         let json = serde_json::to_string(&body).unwrap();
         assert!(json.contains("project_not_found"));
         assert!(json.contains("jcs project add"));

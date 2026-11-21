@@ -100,9 +100,8 @@ fn service_url() -> Result<String> {
 
 /// Reads the instance password from the OpenCode config directory.
 fn service_password() -> Result<String> {
-    let dir = opencode_config_dir().ok_or_else(|| {
-        AgentError::discovery("cannot locate the user config directory")
-    })?;
+    let dir = opencode_config_dir()
+        .ok_or_else(|| AgentError::discovery("cannot locate the user config directory"))?;
     let path = dir.join("service.json");
 
     let raw = std::fs::read_to_string(&path).map_err(|e| {
@@ -135,7 +134,9 @@ fn service_password() -> Result<String> {
         .to_string();
 
     if password.is_empty() {
-        tracing::warn!("opencode service reports no password; assuming an unauthenticated instance");
+        tracing::warn!(
+            "opencode service reports no password; assuming an unauthenticated instance"
+        );
     }
 
     Ok(password)

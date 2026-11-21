@@ -8,7 +8,6 @@
 //! Implements the parts of the SSE spec that matter here: line framing over CR/LF/CRLF,
 //! comment lines, multi-line `data` joined with newlines, and dispatch on blank lines.
 
-
 /// One dispatched SSE event.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SseFrame {
@@ -51,10 +50,7 @@ impl SseDecoder {
         self.buffer.extend_from_slice(chunk);
 
         let mut frames = Vec::new();
-        loop {
-            let Some((end, sep_len)) = find_line_end(&self.buffer) else {
-                break;
-            };
+        while let Some((end, sep_len)) = find_line_end(&self.buffer) {
             let line: Vec<u8> = self.buffer[..end].to_vec();
             self.buffer.drain(..end + sep_len);
 

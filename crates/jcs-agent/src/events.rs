@@ -211,10 +211,7 @@ mod tests {
 
         assert_eq!(event.kind, "session.execution.succeeded");
         assert_eq!(event.session_id(), Some("ses_abc"));
-        assert_eq!(
-            event.execution_outcome(),
-            Some(ExecutionOutcome::Succeeded)
-        );
+        assert_eq!(event.execution_outcome(), Some(ExecutionOutcome::Succeeded));
         assert!(event.ends_execution_for("ses_abc").is_some());
         assert!(event.ends_execution_for("ses_other").is_none());
     }
