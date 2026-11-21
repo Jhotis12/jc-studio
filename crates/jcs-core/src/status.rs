@@ -74,9 +74,14 @@ macro_rules! status_enum {
 
 status_enum! {
     /// Lifecycle of a user objective.
+    ///
+    /// `Blocked` exists because an objective can need a human decision (a credential,
+    /// an ambiguous requirement) without being wrong. Collapsing that into `Failed`
+    /// would hide work that is still wanted.
     GoalStatus {
         Pending => "pending",
         Running => "running",
+        Blocked => "blocked",
         Succeeded => "succeeded",
         Failed => "failed",
         Cancelled => "cancelled",
@@ -88,6 +93,7 @@ impl StatusMachine for GoalStatus {
         match self {
             Self::Pending => "pending",
             Self::Running => "running",
+            Self::Blocked => "blocked",
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",
@@ -96,8 +102,14 @@ impl StatusMachine for GoalStatus {
 
     fn allowed_next(self) -> &'static [Self] {
         match self {
-            Self::Pending => &[Self::Running, Self::Cancelled],
-            Self::Running => &[Self::Succeeded, Self::Failed, Self::Cancelled],
+            Self::Pending => &[Self::Running, Self::Blocked, Self::Cancelled],
+            Self::Running => &[
+                Self::Succeeded,
+                Self::Failed,
+                Self::Blocked,
+                Self::Cancelled,
+            ],
+            Self::Blocked => &[Self::Running, Self::Failed, Self::Cancelled],
             Self::Succeeded | Self::Failed | Self::Cancelled => &[],
         }
     }
@@ -135,9 +147,22 @@ impl StatusMachine for TaskStatus {
     fn allowed_next(self) -> &'static [Self] {
         match self {
             Self::Pending => &[Self::Running, Self::Blocked, Self::Cancelled],
-            Self::Running => &[Self::Verifying, Self::Failed, Self::Blocked, Self::Cancelled],
+            Self::Running => &[
+                Self::Verifying,
+                Self::Failed,
+                Self::Blocked,
+                Self::Cancelled,
+            ],
             // A failed gate sends the task back to Running for a bounded repair loop.
-            Self::Verifying => &[Self::Succeeded, Self::Running, Self::Failed, Self::Cancelled],
+            // Blocking here is real: verification can stall on a missing credential or
+            // a merge conflict, and that must not be reported as a task failure.
+            Self::Verifying => &[
+                Self::Succeeded,
+                Self::Running,
+                Self::Failed,
+                Self::Blocked,
+                Self::Cancelled,
+            ],
             // Retry is an explicit, counted decision, not an automatic side effect.
             Self::Failed => &[Self::Pending, Self::Cancelled],
             Self::Blocked => &[Self::Pending, Self::Cancelled],
