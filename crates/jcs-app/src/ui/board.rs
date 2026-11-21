@@ -201,12 +201,6 @@ fn card(ui: &mut egui::Ui, app: &mut Studio, goal: &GoalView) {
                     if response.clicked() {
                         app.focus_task(goal.id.clone(), task.id.clone());
                     }
-                    response.on_hover_text(format!(
-                        "{} · {}% · {}",
-                        task.title,
-                        (progress.fraction * 100.0).round() as i32,
-                        progress.label
-                    ));
                 }
             });
         } else if goal.status == "running" {

@@ -97,7 +97,6 @@ pub fn graph(ui: &mut egui::Ui, app: &mut Studio, tasks: &[TaskView]) {
             }
 
             let pointer = ui.ctx().pointer_hover_pos();
-            let mut hovered: Option<&str> = None;
             for task in tasks {
                 let Some(rect) = rects.get(task.id.as_str()).copied() else {
                     continue;
@@ -157,7 +156,6 @@ pub fn graph(ui: &mut egui::Ui, app: &mut Studio, tasks: &[TaskView]) {
                 );
 
                 if is_hovered {
-                    hovered = Some(task.id.as_str());
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
             }
@@ -173,25 +171,6 @@ pub fn graph(ui: &mut egui::Ui, app: &mut Studio, tasks: &[TaskView]) {
                             break;
                         }
                     }
-                }
-            }
-
-            if let Some(id) = hovered {
-                if let Some(task) = tasks.iter().find(|task| task.id == id) {
-                    let progress = task_progress(task);
-                    let wait = app
-                        .state
-                        .task_wait_reason(task)
-                        .map(|reason| format!("\n{reason}"))
-                        .unwrap_or_default();
-                    response.clone().on_hover_text(format!(
-                        "{}\n{} · {}% · {}{}",
-                        task.title,
-                        task.status,
-                        (progress.fraction * 100.0).round() as i32,
-                        progress.label,
-                        wait
-                    ));
                 }
             }
         });
