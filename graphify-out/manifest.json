@@ -750,15 +750,15 @@
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/board.rs": {
-    "mtime": 1795298666.9941163,
-    "seen": 1795298846.6838205,
-    "ast_hash": "e660a249f98efe7fe962ae34b1759625",
+    "mtime": 1795298924.0895586,
+    "seen": 1795299008.2573647,
+    "ast_hash": "79738daf6c5d1658921cc519f53de591",
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/details.rs": {
-    "mtime": 1795298666.9943485,
-    "seen": 1795298846.6838367,
-    "ast_hash": "759a8c7f95717dc046d80624cb942468",
+    "mtime": 1795298924.0897582,
+    "seen": 1795299008.2574034,
+    "ast_hash": "f02b5536b4df5d5ea095c8d24d3fad8d",
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/memory.rs": {
@@ -894,9 +894,9 @@
     "semantic_hash": ""
   },
   "docs/RUNBOOK.md": {
-    "mtime": 1795298696.81469,
-    "seen": 1795298846.685051,
-    "ast_hash": "c9ad1b15b6828b12ca05adabe95964cb",
+    "mtime": 1795298948.829322,
+    "seen": 1795299008.259324,
+    "ast_hash": "6ec70ccd482fd30e1e81866290ab666c",
     "semantic_hash": ""
   },
   "docs/adr/0010-desktop-app-egui.md": {
