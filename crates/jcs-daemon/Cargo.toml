@@ -1,0 +1,39 @@
+[package]
+name = "jcs-daemon"
+description = "JC Studio daemon (jcsd): control plane over a unix domain socket"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "jcsd"
+path = "src/main.rs"
+
+[dependencies]
+jcs-core = { workspace = true }
+jcs-proto = { workspace = true }
+jcs-store = { workspace = true }
+jcs-agent = { workspace = true }
+jcs-git = { workspace = true }
+
+anyhow = { workspace = true }
+axum = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+futures-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+http-body-util = { workspace = true }

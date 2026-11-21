@@ -61,6 +61,17 @@ la TUI necesita latencias de milisegundos.
 - Compactación mensual a tabla `events_archive` para todo evento de más de 90 días que no
   sea `run.*`, `gate.*`, `commit.*` ni `approval.*` (esos son permanentes por auditoría).
 
+## Enmienda (2026-11-21): arranque sobre estado sucio
+
+Dos reglas que solo aparecieron al matar el daemon con `kill -9`:
+
+1. **Las tareas en vuelo se aparcan como `Blocked`, nunca como `Failed`.** Un proceso muerto
+   no demuestra nada sobre el trabajo. `Running` y `Verifying` pueden ir directos a `Blocked`;
+   pasar por `Failed` es una transición ilegal y, en la primera versión, **impidió arrancar**.
+2. **La recuperación no puede impedir el arranque.** Si falla, se registra el error y el daemon
+   arranca igual: negarse a bootear deja al operador sin forma de inspeccionar el estado que
+   necesita recuperar.
+
 ## Verificación
 
 - Test: `kill -9` simulado entre transacciones → al reabrir, `PRAGMA integrity_check` = `ok`

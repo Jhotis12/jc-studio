@@ -1,0 +1,28 @@
+[Unit]
+Description=JC Studio daemon (multi-agent console orchestrator)
+Documentation=https://github.com/jhotis/jc-studio
+# The backend is a dependency for execution, but not for the daemon to boot:
+# status and history must stay available when OpenCode is down.
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.cargo/bin/jcsd
+Restart=on-failure
+RestartSec=3s
+# The daemon owns durable state; a hard kill is survivable (stale runs are recovered
+# and parked), but a clean stop is preferred so the WAL can be checkpointed.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+# Hardening: the daemon only needs its own data dir and the user's runtime dir.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/jcs
+StateDirectory=jcs
+RuntimeDirectory=jcs
+
+[Install]
+WantedBy=default.target

@@ -70,6 +70,22 @@ Reglas de uso del contrato:
   `session.message.list` / `session.diff` para no perder eventos.
 - Servicio caído a mitad de tarea: el run queda `interrupted`, no `failed`, y es reintentable.
 
+## Enmienda (2026-11-21): reconciliación y formularios
+
+La implementación reveló dos cosas que el contrato no expresa:
+
+1. **El stream no es suficiente para saber cuándo termina un run.** Un agente puede abrir una
+   herramienta interactiva (`question`) que crea un *form* y deja la sesión viva indefinidamente.
+   Por eso el bucle de ejecución tiene **tres mecanismos independientes** de terminación:
+   evento terminal, reconciliación REST cada 2 s (`session.outcome` + forms + permisos) y un
+   presupuesto duro de tiempo (`JCS_RUN_TIMEOUT_SECS`).
+2. **Una pregunta del agente es un bloqueo, no un éxito ni un fallo.** El form se **cancela**
+   (dejarlo abierto mantiene el turno vivo) y la tarea y el objetivo pasan a `Blocked`, con la
+   pregunta en el event log. Un `blocked` visible es preferible a un `running` eterno.
+
+Consecuencia de diseño: los eventos son una optimización de latencia y telemetría; la
+**autoridad** es el estado que reporta el backend por REST.
+
 ## Verificación
 
 - `tests/contract.rs` valida que los endpoints usados existen en `docs/contracts/*.json`
