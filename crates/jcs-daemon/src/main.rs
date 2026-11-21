@@ -13,6 +13,7 @@ mod planner;
 mod reviewer;
 mod scheduler;
 mod state;
+mod telegram;
 mod uds;
 mod verify;
 
@@ -179,6 +180,7 @@ async fn main() -> Result<()> {
     // The scheduler is the only component that dispatches work. It resumes whatever the
     // previous process left pending, using durable state only.
     let scheduler = scheduler::spawn(state.clone());
+    let telegram = telegram::spawn(state.clone());
     let sweeper = memory_service::spawn_sweeper(state.clone());
 
     let result = uds::serve(state.clone(), config.socket_path.clone(), shutdown_signal()).await;
@@ -186,6 +188,9 @@ async fn main() -> Result<()> {
     scheduler.abort();
     if let Some(sweeper) = sweeper {
         sweeper.abort();
+    }
+    if let Some(telegram) = telegram {
+        telegram.abort();
     }
 
     http::record_lifecycle(

@@ -352,6 +352,24 @@ impl Repo {
             .await
     }
 
+    /// Added plus removed lines between two revisions.
+    ///
+    /// Binary entries print `-` and are skipped; a change in a binary file is reported by
+    /// the merge decision as unknown rather than as zero.
+    pub async fn changed_lines_between(&self, from: &str, to: &str) -> Result<i64> {
+        let output = self.must_git(&["diff", "--numstat", from, to]).await?;
+
+        Ok(output
+            .lines()
+            .filter_map(|line| {
+                let mut parts = line.split('\t');
+                let added: i64 = parts.next()?.parse().ok()?;
+                let deleted: i64 = parts.next()?.parse().ok()?;
+                Some(added + deleted)
+            })
+            .sum())
+    }
+
     /// Human-readable log of the last `count` commits.
     pub async fn log_oneline(&self, count: u32) -> Result<String> {
         let count = count.to_string();

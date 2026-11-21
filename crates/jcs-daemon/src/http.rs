@@ -400,7 +400,7 @@ async fn ask(
 }
 
 /// Runs the planner in the background so the client is not held for a model call.
-fn spawn_planning(state: AppState, goal: Goal, project: Project) {
+pub(crate) fn spawn_planning(state: AppState, goal: Goal, project: Project) {
     tokio::spawn(async move {
         match crate::planner::plan_goal(&state, &goal, &project).await {
             Ok(plan) => {
@@ -1074,6 +1074,9 @@ mod tests {
             review: false,
             review_model: None,
             review_max_findings: 10,
+            risk_max_lines: 400,
+            telegram_token: None,
+            telegram_chat_ids: Vec::new(),
         });
         AppState::new(
             store,

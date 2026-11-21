@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
-use jcs_core::{EventKind, Goal, NewEvent, Project, Task};
+use jcs_core::{EventKind, GateStatus, Goal, NewEvent, Project, Task};
 use jcs_git::Repo;
 
 use crate::state::AppState;
@@ -229,6 +229,25 @@ pub async fn promote(
         return Ok(());
     }
 
+    // Risk routing: a large change is not auto-merged, even when every check is green.
+    // Size is a proxy for "a human should look at this before it lands".
+    let lines = repo
+        .changed_lines_between(&project.base_branch, integration)
+        .await?;
+    if lines > state.config.risk_max_lines as i64 {
+        return Err(anyhow!(
+            "the change touches {lines} lines, above the {} line auto-merge limit; \
+             review it manually or raise JCS_RISK_MAX_LINES",
+            state.config.risk_max_lines
+        ));
+    }
+
+    // When review is enabled, every task must have a passing review verdict. A green gate
+    // suite is not the same as a reviewed change.
+    if state.config.review {
+        require_reviews(state, goal).await?;
+    }
+
     if !repo.is_clean().await? {
         return Err(anyhow!(
             "{} has uncommitted changes; refusing to touch the base branch",
@@ -291,6 +310,28 @@ fn cleanup(state: &AppState, project: &Project, integration: &str) {
             tracing::debug!(error = %error, "cannot delete the integration branch");
         }
     });
+}
+
+async fn require_reviews(state: &AppState, goal: &Goal) -> Result<()> {
+    for task in state.store.list_tasks_by_goal(&goal.id).await? {
+        let runs = state.store.list_runs_by_task(&task.id).await?;
+        let Some(last) = runs.last() else {
+            continue;
+        };
+        let gates = state.store.list_gate_results(&last.id).await?;
+        let reviewed = gates
+            .iter()
+            .any(|gate| gate.name == "review" && gate.status == GateStatus::Passed);
+
+        if !reviewed {
+            return Err(anyhow!(
+                "task {} has no passing review; run it with JCS_REVIEW=1 or disable review \
+                 before promoting",
+                task.id
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Last eight alphanumeric characters of an id, for human-readable branch names.

@@ -43,6 +43,12 @@ pub struct Config {
     pub review_model: Option<String>,
     /// Maximum number of findings kept per review.
     pub review_max_findings: usize,
+    /// Largest change, in added+removed lines, that may be auto-merged.
+    pub risk_max_lines: usize,
+    /// Telegram bot token; the bot is off without it.
+    pub telegram_token: Option<String>,
+    /// Chats allowed to command the daemon.
+    pub telegram_chat_ids: Vec<i64>,
 }
 
 impl Config {
@@ -82,6 +88,16 @@ impl Config {
             ),
             review_model: env_non_empty("JCS_REVIEW_MODEL"),
             review_max_findings: env_parse("JCS_REVIEW_MAX_FINDINGS").unwrap_or(10).min(50),
+            risk_max_lines: env_parse("JCS_RISK_MAX_LINES").unwrap_or(400).max(1),
+            telegram_token: env_non_empty("JCS_TELEGRAM_TOKEN"),
+            telegram_chat_ids: env_non_empty("JCS_TELEGRAM_CHAT_IDS")
+                .map(|value| {
+                    value
+                        .split(',')
+                        .filter_map(|part| part.trim().parse::<i64>().ok())
+                        .collect()
+                })
+                .unwrap_or_default(),
         }
     }
 }

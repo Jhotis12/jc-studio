@@ -17,11 +17,11 @@ Si llegas aquí después de una compactación de contexto, el punto de entrada e
 | 2 — Política como código y gates | 7 | **completa** | 100 % |
 | 3 — Orquestador durable y TUI | 12 | **casi completa** | 93 % |
 | 4 — Memoria: grafo + RAG | 10 | **casi completa** | 90 % |
-| 5 — Revisión de código y seguridad | 6 | parcial (falta enrutado por riesgo) | 75 % |
-| 6 — Telegram | 4 | no iniciada | 0 % |
+| 5 — Revisión de código y seguridad | 6 | **completa** | 100 % |
+| 6 — Telegram | 4 | operativa | 85 % |
 | 7 — Hardening y distribución | 10 | parcial | 25 % |
 
-- **v1 completo (fases 0–7): ~70 %.**
+- **v1 completo (fases 0–7): ~78 %.**
 - **MVP (fases 0–4): ~99 %.**
 
 El porcentaje mide alcance, no riesgo. La tesis arquitectónica (daemon durable, agente real,
@@ -57,7 +57,16 @@ worktree aislado, gates, DAG, integración) está validada con tests y scripts.
       proyecto (`[secrets]`), como gate `secrets` y con el hallazgo redactado.
 - [x] 5.1 Revisor con rúbrica: JSON estricto, findings con `archivo:línea`, `error` bloquea,
       opt-in con `JCS_REVIEW=1`, y entra en el bucle de reparación.
-- [ ] 5.4 Enrutado por riesgo antes de promocionar a la base.
+- [x] 5.4 Enrutado por riesgo: tamaño del cambio (`JCS_RISK_MAX_LINES`) y, con revisión
+      activa, veredicto `review` aprobado por tarea antes de promocionar.
+
+## Fase 6: qué falta exactamente
+
+- [x] Long polling, allowlist de chats, comandos y notificaciones de estados terminales.
+- [ ] Aprobaciones firmadas con expiración e idempotencia (hoy se reanuda con `/resume`).
+- [ ] Rate limiting y resumen diario.
+- Nota: probado con tests de parseo y allowlist, **no contra la API real** de Telegram (no
+  hay token en este entorno).
 
 ## Evidencia reproducible
 

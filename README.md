@@ -18,7 +18,7 @@ Telegram      ─┘                            │
 
 ## Estado
 
-**Fases 0, 1, 2, 3 y 4: completas.**
+**Fases 0, 1, 2, 3, 4 y 5: completas. Fase 6 operativa.**
 
 Funciona de punta a punta: objetivo → worktree aislado → sesión de agente real → gates
 **definidos por la política del proyecto** → bucle de reparación acotado → commit
@@ -35,8 +35,8 @@ La memoria indexa el código con tree-sitter (símbolos, imports, llamadas, tabl
 responde búsquedas híbridas (BM25 + grafo + embeddings opcionales) y **inyecta contexto
 citado** en el prompt de cada tarea.
 
-Lo que **no** hay todavía (fases 5–7): revisor adversarial, Telegram, hardening de 72 h y
-empaquetado.
+El canal remoto de Telegram permite consultar estado, pedir objetivos y reanudar objetivos
+bloqueados desde el móvil. Falta el hardening de la Fase 7 (métricas, soak, empaquetado).
 
 Avance por fase y evidencia: [`docs/STATUS.md`](docs/STATUS.md).
 Si retomas el proyecto sin contexto previo: [`docs/HANDOFF.md`](docs/HANDOFF.md).
@@ -149,6 +149,18 @@ jcs project settings servicio --budget-usd 10 --budget-tokens 5000000
 
 `jcs project settings` sin flags muestra la configuración actual. Un objetivo bloqueado se
 reactiva con `jcs resume`, y las ramas de tarea se limpian al integrarse.
+
+### Telegram
+
+```bash
+export JCS_TELEGRAM_TOKEN=123:abc
+export JCS_TELEGRAM_CHAT_IDS=11111111,22222222
+jcsd
+```
+
+Long polling (sin puerto entrante), allowlist estricta de chats y notificaciones de estados
+terminales, bloqueos, presupuesto agotado y fallos de merge. Comandos: `/status`,
+`/projects`, `/goal <id>`, `/resume <id>`, `/ask <proyecto> <objetivo>`, `/help`.
 
 ### Memoria
 

@@ -119,12 +119,26 @@ estricta, validación de dominio y **una** reparación. Nuevo `crates/jcs-daemon
   reparación que un gate rojo (comparte presupuesto `JCS_MAX_REPAIR_CYCLES`).
 - Opt-in al principio (`JCS_REVIEW=1`) para no duplicar coste en cada tarea.
 
-### 5.4 Enrutado por riesgo
+### 5.4 Enrutado por riesgo — HECHO
+
+`merge::promote` rechaza promocionar si el diff supera `JCS_RISK_MAX_LINES` (400 por
+defecto) o si, con `JCS_REVIEW=1`, alguna tarea no tiene un gate `review` aprobado. El
+objetivo queda `Blocked` con el motivo, nunca a medias.
+
+### 5.4b Enrutado por riesgo (histórico)
 
 En `crates/jcs-daemon/src/merge.rs`: antes de promocionar, calcular riesgo =
 gates + findings del revisor + tamaño del diff + rutas tocadas vs `paths` declarados. Si no
 es "bajo", el objetivo pasa a `Blocked` con el motivo y espera `jcs resume` (decisión humana
 registrada en el event log).
+
+## Fase 6 (Telegram) — estado
+
+`crates/jcs-daemon/src/telegram.rs`: long polling, allowlist estricta, `/status`,
+`/projects`, `/goal`, `/resume`, `/ask`, y notificaciones desde el event log. Configuración:
+`JCS_TELEGRAM_TOKEN` y `JCS_TELEGRAM_CHAT_IDS`. **No probado contra la API real** (sin
+token): antes de confiar en él, levantar el bot con un token de prueba y verificar
+`getUpdates`, allowlist y un `/status`.
 
 ## Trampas ya encontradas (no repetirlas)
 
