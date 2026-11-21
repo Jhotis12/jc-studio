@@ -29,7 +29,8 @@ verde, el aviso ámbar y el fallo rojo; todo lo demás es fondo, borde y texto.
 - Shell: barra superior de 56 px con marca, estado y gasto; navegación en una barra propia
   con pestañas tipo pill y scroll horizontal si no caben; laterales con superficie y padding.
 - Ancho: tres paneles solo a partir de **1160 px**. Por debajo, el detalle es una pestaña;
-  así el tablero y el código conservan ancho útil.
+  y por debajo de **900 px** la lista de proyectos se convierte en un selector. Así el
+  tablero y el código conservan ancho útil en vez de quedar aplastados entre laterales.
 - Tablero: el compositor empieza **colapsado cuando hay objetivos** y se abre con
   «+ Nuevo objetivo». La lista manda. Las tarjetas muestran estado, coste, progreso por
   tarea, conteos y la actividad actual; no una etiqueta por cada tarea.

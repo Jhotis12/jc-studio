@@ -35,7 +35,9 @@ pub fn shell(context: &egui::Context, app: &mut Studio) {
     // Three panels need real width for the workspace. Below this the detail becomes a tab,
     // which keeps the code/board usable instead of squeezing it between two sidebars.
     app.wide = width >= 1160.0;
-    let show_projects = width >= 640.0;
+    // The project list is wide. Below this the workspace needs the full width, so the
+    // project becomes a selector inside the workspace instead of a side panel.
+    let show_projects = width >= 900.0;
 
     top_bar(context, app);
     console(context, app);
