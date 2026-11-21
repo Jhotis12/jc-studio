@@ -147,9 +147,13 @@ enum PolicyCommand {
     /// List the packs available to the daemon.
     Packs,
     /// Show the effective policy of a project.
-    Show { project: Option<String> },
+    Show {
+        /// Project name or path; defaults to the current directory.
+        project: Option<String>,
+    },
     /// Render the derived files, or verify them with --check.
     Render {
+        /// Project name or path; defaults to the current directory.
         project: Option<String>,
         /// Fail if the files on disk differ from the policy; write nothing.
         #[arg(long)]
@@ -163,9 +167,13 @@ enum PolicyCommand {
 #[derive(Debug, Subcommand)]
 enum GatesCommand {
     /// List the gates of a project.
-    List { project: Option<String> },
+    List {
+        /// Project name or path; defaults to the current directory.
+        project: Option<String>,
+    },
     /// Run the gates in the project checkout (diagnostic; tasks use a worktree).
     Run {
+        /// Project name or path; defaults to the current directory.
         project: Option<String>,
         /// Run only this gate.
         #[arg(long)]
@@ -587,6 +595,7 @@ async fn gates(client: &Client, command: GatesCommand, json: bool) -> Result<()>
             if json {
                 println!("{}", serde_json::to_string_pretty(&response)?);
             } else {
+                eprintln!("note: gates ran in the project checkout, not in a task worktree");
                 for outcome in &response.outcomes {
                     println!(
                         "{:<12} {:<8} {:>7} ms{}",
