@@ -1,0 +1,43 @@
+# cargo-deny configuration.
+#
+# Checked in CI and by `just audit`. The point is to catch a vulnerable or
+# license-incompatible dependency before it ships, not to be exhaustive.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "warn"
+
+[licenses]
+# Permissive licenses only. Anything copyleft needs a deliberate decision.
+confidence-threshold = 0.8
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "MPL-2.0",
+    "CC0-1.0",
+    "BSL-1.0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Dependencies that must never appear: unsafe crypto and unmaintained TLS stacks.
+deny = [
+    { name = "openssl" },
+    { name = "openssl-sys" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
