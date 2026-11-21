@@ -69,18 +69,28 @@ Una pregunta **no** deja la sesión colgada: se cancela el form y la tarea se ap
 
 ## Instalación
 
+**Desde un tarball (Linux x86_64, sin Rust):**
+
 ```bash
-rustup show                      # instala la toolchain pinneada
-cargo build --release
-
-# opción A: usar los binarios del árbol
-./target/release/jcsd --help
-./target/release/jcs --help
-
-# opción B: instalarlos en ~/.cargo/bin (lo que asume la unidad systemd)
-cargo install --path crates/jcs-daemon
-cargo install --path crates/jcs-cli
+tar -xzf jc-studio-0.1.0-x86_64-unknown-linux-gnu.tar.gz
+cd jc-studio-0.1.0-x86_64-unknown-linux-gnu
+./install.sh
+systemctl --user daemon-reload && systemctl --user enable --now jcsd
+jcs doctor
 ```
+
+El tarball incluye `jcsd`, `jcs`, el RUNBOOK, la unidad systemd y un checksum SHA-256.
+
+**Desde el repositorio:**
+
+```bash
+cargo build --release
+./contrib/install.sh        # detecta los binarios ya compilados
+```
+
+**Generar el tarball:** `./scripts/package.sh` → `dist/jc-studio-<versión>-<target>.tar.gz`.
+
+Etiquetar `v*` dispara `.github/workflows/release.yml`, que usa el mismo script.
 
 ## Uso
 

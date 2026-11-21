@@ -12,10 +12,19 @@ falta, ver [`STATUS.md`](STATUS.md); para retomar el desarrollo, [`HANDOFF.md`](
 
 ## Instalación
 
-```bash
-cargo build --release
-./contrib/install.sh            # binarios en ~/.local/bin + unidad systemd de usuario
+**Tarball (sin Rust):**
 
+```bash
+tar -xzf jc-studio-<versión>-x86_64-unknown-linux-gnu.tar.gz
+cd jc-studio-<versión>-x86_64-unknown-linux-gnu
+./install.sh
+```
+
+**Desde el repositorio:** `cargo build --release && ./contrib/install.sh`.
+
+Ambos instalan en `~/.local/bin` y la unidad en `~/.config/systemd/user/`.
+
+```bash
 systemctl --user daemon-reload
 systemctl --user enable --now jcsd
 journalctl --user -u jcsd -f

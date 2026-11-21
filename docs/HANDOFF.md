@@ -87,9 +87,9 @@ decisiones existen precisamente porque un enfoque obvio falló.
 ## Siguiente trabajo
 
 **Fase 5 completada** (gates, fitness functions, secretos, revisor, riesgo). **Fase 6
-operativa** (Telegram). **Fase 7 parcial**: métricas, systemd, doctor, `contrib/install.sh`,
-`docs/RUNBOOK.md` y `scripts/soak.sh` (**verde**). Lo que queda: `cargo dist` y
-`/metrics` por proyecto.
+operativa** (Telegram). **Fase 7 parcial**: métricas, systemd, doctor, `contrib/install.sh`, `scripts/package.sh` (tarball Linux
+verificado), `docs/RUNBOOK.md` y `scripts/soak.sh` (**verde**). Lo que queda: artefactos
+macOS/aarch64, soak largo y Telegram real (ambos los hará el operador).
 
 **Modelos para E2E:** usar `opencode-go/hy4-flash-free` (coste $0, credencial ya activa en
 OpenCode). Los modelos del proveedor `opencode` (gratuitos sin credencial) fallaron con
