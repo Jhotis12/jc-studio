@@ -690,9 +690,9 @@
     "semantic_hash": ""
   },
   "docs/STATUS.md": {
-    "mtime": 1795304710.6541247,
-    "seen": 1795304741.5194983,
-    "ast_hash": "0772eed935076ea751b26910072c0819",
+    "mtime": 1795304834.3602734,
+    "seen": 1795304844.5245862,
+    "ast_hash": "15af5d9ad596d0b768cd784bd3dbea09",
     "semantic_hash": ""
   },
   "docs/adr/0009-code-memory.md": {
@@ -768,9 +768,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/mod.rs": {
-    "mtime": 1795304580.1435792,
-    "seen": 1795304741.5181932,
-    "ast_hash": "3a7d538f5ae25280970f429d291e547d",
+    "mtime": 1795304810.636894,
+    "seen": 1795304844.5225747,
+    "ast_hash": "a6ac0ae12c78c5c32a4100404edbbb9e",
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/policy.rs": {
@@ -1032,9 +1032,9 @@
     "semantic_hash": ""
   },
   "docs/adr/0018-ui-visual-system.md": {
-    "mtime": 1795304710.6532638,
-    "seen": 1795304741.5196702,
-    "ast_hash": "b104e6f2ee5d4903bcb6de4ff3d61650",
+    "mtime": 1795304834.3601012,
+    "seen": 1795304844.5248404,
+    "ast_hash": "f60da9c9e1085f7dbc8bb41190880d39",
     "semantic_hash": ""
   }
 }
