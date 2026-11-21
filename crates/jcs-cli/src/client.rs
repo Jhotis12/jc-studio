@@ -53,6 +53,14 @@ impl Client {
         self.post("/projects", request).await
     }
 
+    pub async fn update_project(
+        &self,
+        id: &str,
+        settings: &jcs_proto::ProjectSettings,
+    ) -> Result<jcs_proto::ProjectResponse> {
+        self.put(&format!("/projects/{id}"), settings).await
+    }
+
     pub async fn remove_project(&self, id: &str) -> Result<jcs_proto::OkResponse> {
         self.delete(&format!("/projects/{id}")).await
     }
@@ -74,6 +82,15 @@ impl Client {
 
     pub async fn run_detail(&self, id: &str) -> Result<jcs_proto::RunDetailResponse> {
         self.get(&format!("/runs/{id}")).await
+    }
+
+    pub async fn goal_detail(&self, id: &str) -> Result<jcs_proto::GoalDetailResponse> {
+        self.get(&format!("/goals/{id}")).await
+    }
+
+    pub async fn resume_goal(&self, id: &str) -> Result<jcs_proto::GoalActionResponse> {
+        self.post(&format!("/goals/{id}/resume"), &serde_json::json!({}))
+            .await
     }
 
     pub async fn policy(&self, project: &str) -> Result<jcs_proto::PolicyView> {
@@ -132,6 +149,14 @@ impl Client {
         let bytes = serde_json::to_vec(body).context("cannot serialize the request")?;
         let response = self
             .send(hyper::Method::POST, path, Some(Bytes::from(bytes)))
+            .await?;
+        decode(path, response).await
+    }
+
+    pub async fn put<B: Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> Result<T> {
+        let bytes = serde_json::to_vec(body).context("cannot serialize the request")?;
+        let response = self
+            .send(hyper::Method::PUT, path, Some(Bytes::from(bytes)))
             .await?;
         decode(path, response).await
     }

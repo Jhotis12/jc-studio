@@ -5,6 +5,7 @@
 
 mod client;
 mod render;
+mod tui;
 
 use std::path::PathBuf;
 
@@ -50,6 +51,16 @@ enum Command {
     Logs(LogsArgs),
     /// Inspect runs and their gates.
     Runs(RunsArgs),
+    /// Show a goal with its tasks and runs.
+    Goal {
+        /// Goal id, as printed by `jcs ask`.
+        goal: String,
+    },
+    /// Resume a blocked goal (for example after a budget reset).
+    Resume {
+        /// Goal id or a unique prefix.
+        goal: String,
+    },
     /// Inspect and render the project policy.
     Policy {
         #[command(subcommand)]
@@ -69,6 +80,8 @@ enum Command {
     Ping,
     /// Verify the local installation end to end.
     Doctor,
+    /// Open the terminal interface.
+    Tui,
 }
 
 #[derive(Debug, Subcommand)]
@@ -90,6 +103,23 @@ enum ProjectCommand {
     Remove {
         /// Project id or name.
         project: String,
+    },
+    /// Change auto-merge and daily budgets.
+    Settings {
+        /// Project id or name.
+        project: String,
+        /// Merge succeeded tasks into the base branch automatically.
+        #[arg(long)]
+        auto_merge: Option<bool>,
+        /// Daily spend ceiling in US dollars.
+        #[arg(long)]
+        budget_usd: Option<f64>,
+        /// Daily token ceiling.
+        #[arg(long)]
+        budget_tokens: Option<i64>,
+        /// Remove both budget ceilings.
+        #[arg(long)]
+        clear_budgets: bool,
     },
 }
 
@@ -118,9 +148,13 @@ struct AskArgs {
     #[arg(long)]
     strict: bool,
 
-    /// Return as soon as the task is accepted, instead of following it.
+    /// Return as soon as the goal is accepted, instead of following it.
     #[arg(long)]
     detach: bool,
+
+    /// Execute the objective as a single task instead of planning a DAG.
+    #[arg(long)]
+    no_plan: bool,
 }
 
 #[derive(Debug, Args)]
@@ -187,14 +221,35 @@ struct RunsArgs {
     run: Option<String>,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    // Behave like a Unix tool when the reader goes away (`jcs logs | head`): die by
+    // SIGPIPE instead of panicking on a failed write to stdout.
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+
     let cli = Cli::parse();
     let socket = cli
         .socket
         .clone()
         .unwrap_or_else(jcs_proto::paths::socket_path);
     let client = Client::new(socket);
+
+    // The TUI owns its runtime and the terminal; it must not run inside an async runtime
+    // that would be starved by the input loop.
+    if matches!(&cli.command, Command::Tui) {
+        return crate::tui::run(client);
+    }
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("cannot start the async runtime")?
+        .block_on(run(cli, client))
+}
+
+async fn run(cli: Cli, client: Client) -> Result<()> {
     let json = cli.json;
 
     match cli.command {
@@ -203,6 +258,12 @@ async fn main() -> Result<()> {
         Command::Status => status(&client, json).await,
         Command::Logs(args) => logs(&client, args, json).await,
         Command::Runs(args) => runs(&client, args, json).await,
+        Command::Goal { goal } => show_goal(&client, &goal, json).await,
+        Command::Resume { goal } => {
+            let response = client.resume_goal(&goal).await?;
+            println!("goal {} is now {}", response.goal_id, response.status);
+            Ok(())
+        }
         Command::Policy { command } => policy(&client, command, json).await,
         Command::Gates { command } => gates(&client, command, json).await,
         Command::Abort { run } => {
@@ -220,6 +281,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Doctor => doctor(&client).await,
+        Command::Tui => unreachable!("handled before the async runtime starts"),
     }
 }
 
@@ -269,6 +331,55 @@ async fn project(client: &Client, command: ProjectCommand, json: bool) -> Result
             }
             Ok(())
         }
+        ProjectCommand::Settings {
+            project,
+            auto_merge,
+            budget_usd,
+            budget_tokens,
+            clear_budgets,
+        } => {
+            let projects = client.projects().await?.projects;
+            let found = projects
+                .iter()
+                .find(|candidate| candidate.id == project || candidate.name == project)
+                .ok_or_else(|| anyhow::anyhow!("no project matches {project:?}"))?;
+
+            let settings = jcs_proto::ProjectSettings {
+                auto_merge: auto_merge.unwrap_or(found.auto_merge),
+                budget_usd_per_day: if clear_budgets {
+                    None
+                } else {
+                    budget_usd.or(found.budget_usd_per_day)
+                },
+                budget_tokens_per_day: if clear_budgets {
+                    None
+                } else {
+                    budget_tokens.or(found.budget_tokens_per_day)
+                },
+            };
+
+            let response = client.update_project(&found.id, &settings).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&response)?);
+            } else {
+                println!(
+                    "{}: auto_merge={} budget_usd={} budget_tokens={}",
+                    response.project.name,
+                    response.project.auto_merge,
+                    response
+                        .project
+                        .budget_usd_per_day
+                        .map(|value| format!("{value:.2}"))
+                        .unwrap_or_else(|| "none".into()),
+                    response
+                        .project
+                        .budget_tokens_per_day
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "none".into())
+                );
+            }
+            Ok(())
+        }
         ProjectCommand::Remove { project } => {
             let projects = client.projects().await?.projects;
             let found = projects
@@ -292,6 +403,7 @@ async fn ask(client: &Client, args: AskArgs, json: bool) -> Result<()> {
         agent,
         strict,
         detach,
+        no_plan,
     } = args;
 
     let project = match project {
@@ -325,7 +437,7 @@ async fn ask(client: &Client, args: AskArgs, json: bool) -> Result<()> {
         bail!("the objective is empty");
     }
 
-    // Capture the cursor *before* asking, so no event of this run can be missed.
+    // Capture the cursor *before* asking, so no event of this goal can be missed.
     let cursor = client.latest_seq().await?;
 
     let request = AskRequest {
@@ -339,6 +451,7 @@ async fn ask(client: &Client, args: AskArgs, json: bool) -> Result<()> {
             PermissionMode::Auto
         },
         title: None,
+        plan: !no_plan,
     };
     let response = client.ask(&request).await?;
 
@@ -349,42 +462,132 @@ async fn ask(client: &Client, args: AskArgs, json: bool) -> Result<()> {
         }
     } else {
         println!(
-            "goal {} · task {} · run {}",
-            response.goal_id, response.task_id, response.run_id
+            "goal {} · {}",
+            response.goal_id,
+            if response.planned {
+                "planning a task DAG"
+            } else {
+                "single task"
+            }
         );
         if detach {
-            println!("detached; follow with `jcs logs --follow`");
+            println!("detached; follow with `jcs goal {}`", response.goal_id);
             return Ok(());
         }
     }
 
-    follow_run(client, &response.run_id, cursor).await
+    follow_goal(client, &response.goal_id, cursor, json).await
 }
 
-async fn follow_run(client: &Client, run_id: &str, cursor: i64) -> Result<()> {
+/// Follows a goal until it reaches a terminal state.
+///
+/// Works for both single-task and planned goals: the unit the user asked for is the goal,
+/// so the unit the client follows is the goal.
+async fn follow_goal(client: &Client, goal_id: &str, cursor: i64, json: bool) -> Result<()> {
     let mut stream = client.events(cursor).await?;
+    let mut titles: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut task_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     while let Some(item) = stream.next().await {
         let event = item?;
-        if event.run_id.as_ref().map(|id| id.as_str()) != Some(run_id) {
+
+        // Task-scoped events carry only a task id, so relevance is "this goal" or "one of
+        // the tasks this goal created". Task creation is goal-scoped and always arrives
+        // before any other event of that task.
+        let belongs_to_goal = event.goal_id.as_ref().map(|goal| goal.as_str()) == Some(goal_id);
+        let belongs_to_task = event
+            .task_id
+            .as_ref()
+            .map(|task| task_ids.contains(task.as_str()))
+            .unwrap_or(false);
+        if !belongs_to_goal && !belongs_to_task {
             continue;
         }
 
-        let finished = event.kind == EventKind::RunFinished;
-        render::event(&event, true);
+        if json {
+            println!("{}", serde_json::to_string(&event)?);
+        }
 
-        if finished {
-            let detail = client.run_detail(run_id).await?;
-            println!();
-            render::run_detail(&detail);
-            return match detail.run.status.as_str() {
-                "succeeded" => Ok(()),
-                other => bail!("run ended as {other}"),
-            };
+        match event.kind {
+            EventKind::TaskCreated => {
+                let title = event
+                    .payload
+                    .get("title")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("task");
+                if let Some(task_id) = event.task_id.as_ref() {
+                    task_ids.insert(task_id.to_string());
+                    titles.insert(task_id.to_string(), title.to_string());
+                    if !json {
+                        println!("+ task {} · {}", render::short_id(task_id.as_str()), title);
+                    }
+                }
+            }
+            EventKind::GoalStatusChanged => {
+                let to = event
+                    .payload
+                    .get("to")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
+                if !json {
+                    render::event(&event, true);
+                }
+
+                if matches!(to, "succeeded" | "failed" | "cancelled" | "blocked") {
+                    let detail = client.goal_detail(goal_id).await?;
+                    if !json {
+                        println!();
+                        render::goal_detail(&detail);
+                    }
+                    return match to {
+                        "succeeded" => Ok(()),
+                        "blocked" => bail!(
+                            "goal blocked; inspect it with `jcs goal {goal_id}` and resume \
+                             with `jcs resume {goal_id}`"
+                        ),
+                        other => bail!("goal ended as {other}"),
+                    };
+                }
+            }
+            EventKind::TaskStatusChanged => {
+                if !json {
+                    let to = event
+                        .payload
+                        .get("to")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("?");
+                    let label = event
+                        .task_id
+                        .as_ref()
+                        .map(|task| {
+                            titles
+                                .get(task.as_str())
+                                .cloned()
+                                .unwrap_or_else(|| render::short_id(task.as_str()).to_string())
+                        })
+                        .unwrap_or_else(|| "task".to_string());
+                    println!("  {label} -> {to}");
+                }
+            }
+            _ => {
+                if !json {
+                    render::event(&event, true);
+                }
+            }
         }
     }
 
-    bail!("the event stream closed before the run finished")
+    bail!("the event stream closed before the goal finished")
+}
+
+async fn show_goal(client: &Client, id: &str, json: bool) -> Result<()> {
+    let detail = client.goal_detail(id).await?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&detail)?);
+    } else {
+        render::goal_detail(&detail);
+    }
+    Ok(())
 }
 
 async fn status(client: &Client, json: bool) -> Result<()> {

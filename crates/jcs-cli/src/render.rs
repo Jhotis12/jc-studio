@@ -226,6 +226,57 @@ pub fn run_detail(detail: &jcs_proto::RunDetailResponse) {
     }
 }
 
+/// Renders a goal, its task board and its run history.
+pub fn goal_detail(detail: &jcs_proto::GoalDetailResponse) {
+    let goal = &detail.goal;
+    println!(
+        "goal {} · {} · {}",
+        short_id(&goal.id),
+        goal.status,
+        truncate(&goal.prompt, 90)
+    );
+
+    if !detail.tasks.is_empty() {
+        println!("\ntasks");
+        for task in &detail.tasks {
+            println!(
+                "  {:<10} {:<10} {}",
+                task.status,
+                short_id(&task.id),
+                truncate(&task.title, 64)
+            );
+        }
+    }
+
+    if !detail.runs.is_empty() {
+        println!("\nruns");
+        for run in &detail.runs {
+            println!(
+                "  {:<10} {:<10} attempt {} · ${:.4}{}",
+                run.status,
+                short_id(&run.id),
+                run.attempt,
+                run.cost_usd,
+                run.error
+                    .as_deref()
+                    .map(|error| format!(" · {}", truncate(error, 70)))
+                    .unwrap_or_default()
+            );
+        }
+    }
+
+    let cost: f64 = detail.runs.iter().map(|run| run.cost_usd).sum();
+    let tokens_in: i64 = detail.runs.iter().map(|run| run.tokens_in).sum();
+    let tokens_out: i64 = detail.runs.iter().map(|run| run.tokens_out).sum();
+    println!(
+        "\ntotal ${:.4} · {} in / {} out · {}",
+        cost,
+        tokens_in,
+        tokens_out,
+        plural(detail.tasks.len() as i64, "task", "tasks")
+    );
+}
+
 pub fn doctor_check(name: &str, ok: bool, detail: &str) {
     println!("[{}] {name:<24} {detail}", if ok { "ok" } else { "FAIL" });
 }
