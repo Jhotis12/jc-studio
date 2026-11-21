@@ -4,7 +4,7 @@
 //! version instead of misinterpreting them. All types are plain JSON; the event stream
 //! is newline-delimited JSON with the same [`EventDto`] shape as the REST responses.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 pub mod paths;
@@ -65,7 +65,7 @@ pub struct ProjectView {
     pub name: String,
     pub root_path: String,
     pub base_branch: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,8 +130,8 @@ pub struct GoalView {
     pub project_id: String,
     pub prompt: String,
     pub status: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,8 +146,8 @@ pub struct TaskView {
     pub branch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -158,9 +158,9 @@ pub struct RunView {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
-    pub started_at: DateTime<Utc>,
+    pub started_at: Timestamp,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ended_at: Option<DateTime<Utc>>,
+    pub ended_at: Option<Timestamp>,
     pub cost_usd: f64,
     pub tokens_in: i64,
     pub tokens_out: i64,

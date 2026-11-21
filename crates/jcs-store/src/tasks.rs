@@ -35,8 +35,11 @@ impl TaskRow {
     }
 }
 
-const TASK_COLUMNS: &str =
-    "id, goal_id, title, status, worktree, branch, session_id, created_at, updated_at";
+macro_rules! task_columns {
+    () => {
+        "id, goal_id, title, status, worktree, branch, session_id, created_at, updated_at"
+    };
+}
 
 impl Store {
     pub async fn create_task(&self, goal_id: &GoalId, title: &str) -> Result<Task> {
@@ -51,7 +54,7 @@ impl Store {
             return Err(StoreError::not_found("goal", goal_id));
         }
 
-        let now = chrono::Utc::now();
+        let now = jiff::Timestamp::now();
         let task = Task {
             id: TaskId::new(),
             goal_id: goal_id.clone(),
@@ -102,7 +105,7 @@ impl Store {
 
         sqlx::query("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?")
             .bind(next.as_str())
-            .bind(crate::store::encode_ts(chrono::Utc::now()))
+            .bind(crate::store::encode_ts(jiff::Timestamp::now()))
             .bind(id.as_str())
             .execute(&mut *tx)
             .await?;
@@ -131,7 +134,7 @@ impl Store {
             sqlx::query("UPDATE tasks SET worktree = ?, branch = ?, updated_at = ? WHERE id = ?")
                 .bind(worktree.to_string_lossy().to_string())
                 .bind(branch)
-                .bind(crate::store::encode_ts(chrono::Utc::now()))
+                .bind(crate::store::encode_ts(jiff::Timestamp::now()))
                 .bind(id.as_str())
                 .execute(&mut *tx)
                 .await?;
@@ -173,13 +176,13 @@ impl Store {
         .bind(task_id.as_str())
         .bind(project_id.as_str())
         .bind(directory.to_string_lossy().to_string())
-        .bind(crate::store::encode_ts(chrono::Utc::now()))
+        .bind(crate::store::encode_ts(jiff::Timestamp::now()))
         .execute(&mut *tx)
         .await?;
 
         sqlx::query("UPDATE tasks SET session_id = ?, updated_at = ? WHERE id = ?")
             .bind(session_id)
-            .bind(crate::store::encode_ts(chrono::Utc::now()))
+            .bind(crate::store::encode_ts(jiff::Timestamp::now()))
             .bind(task_id.as_str())
             .execute(&mut *tx)
             .await?;
@@ -198,18 +201,23 @@ impl Store {
     }
 
     pub async fn get_task(&self, id: &TaskId) -> Result<Option<Task>> {
-        let row: Option<TaskRow> =
-            sqlx::query_as(&format!("SELECT {TASK_COLUMNS} FROM tasks WHERE id = ?"))
-                .bind(id.as_str())
-                .fetch_optional(self.pool())
-                .await?;
+        let row: Option<TaskRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            task_columns!(),
+            " FROM tasks WHERE id = ?"
+        ))
+        .bind(id.as_str())
+        .fetch_optional(self.pool())
+        .await?;
 
         row.map(TaskRow::into_domain).transpose()
     }
 
     pub async fn list_tasks_by_goal(&self, goal_id: &GoalId) -> Result<Vec<Task>> {
-        let rows: Vec<TaskRow> = sqlx::query_as(&format!(
-            "SELECT {TASK_COLUMNS} FROM tasks WHERE goal_id = ? ORDER BY created_at"
+        let rows: Vec<TaskRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            task_columns!(),
+            " FROM tasks WHERE goal_id = ? ORDER BY created_at"
         ))
         .bind(goal_id.as_str())
         .fetch_all(self.pool())
@@ -219,8 +227,10 @@ impl Store {
     }
 
     pub async fn list_tasks(&self, limit: i64) -> Result<Vec<Task>> {
-        let rows: Vec<TaskRow> = sqlx::query_as(&format!(
-            "SELECT {TASK_COLUMNS} FROM tasks ORDER BY created_at DESC LIMIT ?"
+        let rows: Vec<TaskRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            task_columns!(),
+            " FROM tasks ORDER BY created_at DESC LIMIT ?"
         ))
         .bind(limit.clamp(1, 1_000))
         .fetch_all(self.pool())
@@ -231,8 +241,10 @@ impl Store {
 
     /// Tasks that were in flight when the daemon stopped. Recovery input.
     pub async fn recoverable_tasks(&self) -> Result<Vec<Task>> {
-        let rows: Vec<TaskRow> = sqlx::query_as(&format!(
-            "SELECT {TASK_COLUMNS} FROM tasks WHERE status IN ('running', 'verifying') \
+        let rows: Vec<TaskRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            task_columns!(),
+            " FROM tasks WHERE status IN ('running', 'verifying') \
              ORDER BY created_at"
         ))
         .fetch_all(self.pool())

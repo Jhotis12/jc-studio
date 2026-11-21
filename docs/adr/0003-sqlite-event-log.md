@@ -72,6 +72,29 @@ Dos reglas que solo aparecieron al matar el daemon con `kill -9`:
    arranca igual: negarse a bootear deja al operador sin forma de inspeccionar el estado que
    necesita recuperar.
 
+## Enmienda (2026-11-21): de `chrono` a `jiff`, y el estado de SQLite
+
+**Marcas de tiempo.** `chrono` está marcado como no mantenido (RUSTSEC-2026-0543, sin
+actualización segura). Se migró a **`jiff` 1.0**, que es la alternativa recomendada y encaja
+mejor con el modelo: `Timestamp` es siempre UTC, serializa RFC 3339 y formatea con precisión
+fija de milisegundos (`%.3f`), que es lo que exige el orden lexicográfico en la base.
+
+**SQLite.** `sqlx` 0.9 fija `libsqlite3-sys` 0.30.1, cuyo SQLite empaquetado es anterior a
+3.54.0 y está afectado por **RUSTSEC-2026-0459** (lectura de memoria no inicializada al abrir
+una base de datos manipulada junto a un `-wal` hermano con otro tamaño de página).
+
+Decisión: **mantener el SQLite empaquetado y aceptar el riesgo de forma explícita** en
+`deny.toml`, porque:
+- la explotación exige que la víctima abra un par base+WAL manipulado;
+- `jcsd` abre únicamente la base que él mismo creó, en el directorio privado del usuario,
+  y no acepta bases ajenas;
+- la alternativa (`sqlite-unbundled`, SQLite del sistema 3.54.0) exige `libclang` para generar
+  bindings, que no está en esta máquina.
+
+**Condición de salida, escrita en `deny.toml`:** revisar cuando `sqlx` permita
+`libsqlite3-sys >= 0.39`, o cuando el entorno de build tenga `libclang` y se pueda enlazar el
+SQLite del sistema.
+
 ## Verificación
 
 - Test: `kill -9` simulado entre transacciones → al reabrir, `PRAGMA integrity_check` = `ok`

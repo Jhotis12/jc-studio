@@ -27,7 +27,11 @@ impl GoalRow {
     }
 }
 
-const GOAL_COLUMNS: &str = "id, project_id, prompt, status, created_at, updated_at";
+macro_rules! goal_columns {
+    () => {
+        "id, project_id, prompt, status, created_at, updated_at"
+    };
+}
 
 impl Store {
     pub async fn create_goal(&self, project_id: &ProjectId, prompt: &str) -> Result<Goal> {
@@ -43,7 +47,7 @@ impl Store {
             return Err(StoreError::not_found("project", project_id));
         }
 
-        let now = chrono::Utc::now();
+        let now = jiff::Timestamp::now();
         let goal = Goal {
             id: GoalId::new(),
             project_id: project_id.clone(),
@@ -91,7 +95,7 @@ impl Store {
 
         sqlx::query("UPDATE goals SET status = ?, updated_at = ? WHERE id = ?")
             .bind(next.as_str())
-            .bind(crate::store::encode_ts(chrono::Utc::now()))
+            .bind(crate::store::encode_ts(jiff::Timestamp::now()))
             .bind(id.as_str())
             .execute(&mut *tx)
             .await?;
@@ -108,18 +112,23 @@ impl Store {
     }
 
     pub async fn get_goal(&self, id: &GoalId) -> Result<Option<Goal>> {
-        let row: Option<GoalRow> =
-            sqlx::query_as(&format!("SELECT {GOAL_COLUMNS} FROM goals WHERE id = ?"))
-                .bind(id.as_str())
-                .fetch_optional(self.pool())
-                .await?;
+        let row: Option<GoalRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            goal_columns!(),
+            " FROM goals WHERE id = ?"
+        ))
+        .bind(id.as_str())
+        .fetch_optional(self.pool())
+        .await?;
 
         row.map(GoalRow::into_domain).transpose()
     }
 
     pub async fn list_goals(&self, limit: i64) -> Result<Vec<Goal>> {
-        let rows: Vec<GoalRow> = sqlx::query_as(&format!(
-            "SELECT {GOAL_COLUMNS} FROM goals ORDER BY created_at DESC LIMIT ?"
+        let rows: Vec<GoalRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            goal_columns!(),
+            " FROM goals ORDER BY created_at DESC LIMIT ?"
         ))
         .bind(limit.clamp(1, 1_000))
         .fetch_all(self.pool())
@@ -141,8 +150,10 @@ impl Store {
         project_id: &ProjectId,
         limit: i64,
     ) -> Result<Vec<Goal>> {
-        let rows: Vec<GoalRow> = sqlx::query_as(&format!(
-            "SELECT {GOAL_COLUMNS} FROM goals WHERE project_id = ? ORDER BY created_at DESC LIMIT ?"
+        let rows: Vec<GoalRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            goal_columns!(),
+            " FROM goals WHERE project_id = ? ORDER BY created_at DESC LIMIT ?"
         ))
         .bind(project_id.as_str())
         .bind(limit.clamp(1, 1_000))

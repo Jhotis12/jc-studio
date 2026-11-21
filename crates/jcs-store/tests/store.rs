@@ -2,9 +2,9 @@
 
 use std::path::PathBuf;
 
-use chrono::Utc;
 use jcs_core::{EventKind, GoalStatus, Project, ProjectId, RunStatus, TaskStatus};
 use jcs_store::{store::Store, StoreError};
+use jiff::Timestamp;
 
 fn project_at(root: PathBuf) -> Project {
     Project {
@@ -12,7 +12,7 @@ fn project_at(root: PathBuf) -> Project {
         name: "demo".to_string(),
         root_path: root,
         base_branch: "main".to_string(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     }
 }
 
@@ -64,7 +64,7 @@ async fn projects_roundtrip_and_reject_duplicates() {
         name: project.name.clone(),
         root_path: PathBuf::from("/somewhere/else"),
         base_branch: "main".into(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     let error = store.insert_project(&duplicate_name).await.unwrap_err();
     assert!(matches!(error, StoreError::Conflict(_)), "{error:?}");

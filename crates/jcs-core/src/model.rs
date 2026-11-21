@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{GoalId, ProjectId, RunId, TaskId};
@@ -14,7 +14,7 @@ pub struct Project {
     pub root_path: PathBuf,
     /// Branch new task worktrees are cut from.
     pub base_branch: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// A user objective, decomposed (eventually) into tasks.
@@ -24,8 +24,8 @@ pub struct Goal {
     pub project_id: ProjectId,
     pub prompt: String,
     pub status: GoalStatus,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 /// A unit of work that one agent session is asked to complete.
@@ -41,8 +41,8 @@ pub struct Task {
     pub branch: Option<String>,
     /// OpenCode session bound to this task.
     pub session_id: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 /// One execution attempt of a task.
@@ -55,8 +55,8 @@ pub struct Run {
     pub attempt: u32,
     pub status: RunStatus,
     pub exit_code: Option<i32>,
-    pub started_at: DateTime<Utc>,
-    pub ended_at: Option<DateTime<Utc>>,
+    pub started_at: Timestamp,
+    pub ended_at: Option<Timestamp>,
     /// Cumulative cost reported by the agent backend, in US dollars.
     pub cost_usd: f64,
     pub tokens_in: i64,
@@ -65,9 +65,10 @@ pub struct Run {
 }
 
 impl Run {
-    /// Duration of a finished run, or `None` while it is still running.
-    pub fn duration(&self) -> Option<chrono::Duration> {
-        self.ended_at.map(|end| end - self.started_at)
+    /// Duration of a finished run in milliseconds, or `None` while it is still running.
+    pub fn duration_millis(&self) -> Option<i64> {
+        self.ended_at
+            .map(|end| end.as_millisecond() - self.started_at.as_millisecond())
     }
 
     /// Whether the run ended in a state that allows an automatic retry.
@@ -89,7 +90,7 @@ mod tests {
             attempt: 1,
             status,
             exit_code: None,
-            started_at: Utc::now(),
+            started_at: Timestamp::now(),
             ended_at: None,
             cost_usd: 0.0,
             tokens_in: 0,
@@ -109,6 +110,6 @@ mod tests {
     #[test]
     fn duration_requires_an_end() {
         let running = sample_run(RunStatus::Started);
-        assert!(running.duration().is_none());
+        assert!(running.duration_millis().is_none());
     }
 }

@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use sqlx::Row;
 
 use crate::error::{Result, StoreError};
@@ -114,7 +114,7 @@ pub async fn count_events(store: &Store) -> Result<i64> {
 }
 
 /// Timestamp of the newest event, if any.
-pub async fn latest_event_ts(store: &Store) -> Result<Option<DateTime<Utc>>> {
+pub async fn latest_event_ts(store: &Store) -> Result<Option<Timestamp>> {
     let ts: Option<String> = sqlx::query_scalar("SELECT ts FROM events ORDER BY seq DESC LIMIT 1")
         .fetch_optional(store.pool())
         .await?;

@@ -41,8 +41,11 @@ impl RunRow {
     }
 }
 
-const RUN_COLUMNS: &str = "id, task_id, attempt, status, exit_code, started_at, ended_at, \
-                           cost_usd, tokens_in, tokens_out, error";
+macro_rules! run_columns {
+    () => {
+        "id, task_id, attempt, status, exit_code, started_at, ended_at, cost_usd, tokens_in, tokens_out, error"
+    };
+}
 
 impl Store {
     /// Starts a new attempt for a task. Attempt numbers are dense per task.
@@ -67,7 +70,7 @@ impl Store {
             attempt: u32::try_from(attempt).unwrap_or(u32::MAX),
             status: RunStatus::Started,
             exit_code: None,
-            started_at: chrono::Utc::now(),
+            started_at: jiff::Timestamp::now(),
             ended_at: None,
             cost_usd: 0.0,
             tokens_in: 0,
@@ -146,7 +149,7 @@ impl Store {
         )
         .bind(status.as_str())
         .bind(exit_code.map(i64::from))
-        .bind(crate::store::encode_ts(chrono::Utc::now()))
+        .bind(crate::store::encode_ts(jiff::Timestamp::now()))
         .bind(error.as_deref())
         .bind(run_id.as_str())
         .execute(&mut *tx)
@@ -175,11 +178,14 @@ impl Store {
     }
 
     pub async fn get_run(&self, id: &RunId) -> Result<Option<Run>> {
-        let row: Option<RunRow> =
-            sqlx::query_as(&format!("SELECT {RUN_COLUMNS} FROM runs WHERE id = ?"))
-                .bind(id.as_str())
-                .fetch_optional(self.pool())
-                .await?;
+        let row: Option<RunRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            run_columns!(),
+            " FROM runs WHERE id = ?"
+        ))
+        .bind(id.as_str())
+        .fetch_optional(self.pool())
+        .await?;
 
         row.map(RunRow::into_domain).transpose()
     }
@@ -189,18 +195,23 @@ impl Store {
         conn: &mut sqlx::SqliteConnection,
         id: &RunId,
     ) -> Result<Option<Run>> {
-        let row: Option<RunRow> =
-            sqlx::query_as(&format!("SELECT {RUN_COLUMNS} FROM runs WHERE id = ?"))
-                .bind(id.as_str())
-                .fetch_optional(&mut *conn)
-                .await?;
+        let row: Option<RunRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            run_columns!(),
+            " FROM runs WHERE id = ?"
+        ))
+        .bind(id.as_str())
+        .fetch_optional(&mut *conn)
+        .await?;
 
         row.map(RunRow::into_domain).transpose()
     }
 
     pub async fn list_runs_by_task(&self, task_id: &TaskId) -> Result<Vec<Run>> {
-        let rows: Vec<RunRow> = sqlx::query_as(&format!(
-            "SELECT {RUN_COLUMNS} FROM runs WHERE task_id = ? ORDER BY attempt"
+        let rows: Vec<RunRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            run_columns!(),
+            " FROM runs WHERE task_id = ? ORDER BY attempt"
         ))
         .bind(task_id.as_str())
         .fetch_all(self.pool())
@@ -210,8 +221,10 @@ impl Store {
     }
 
     pub async fn list_runs(&self, limit: i64) -> Result<Vec<Run>> {
-        let rows: Vec<RunRow> = sqlx::query_as(&format!(
-            "SELECT {RUN_COLUMNS} FROM runs ORDER BY started_at DESC LIMIT ?"
+        let rows: Vec<RunRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            run_columns!(),
+            " FROM runs ORDER BY started_at DESC LIMIT ?"
         ))
         .bind(limit.clamp(1, 1_000))
         .fetch_all(self.pool())
@@ -236,7 +249,7 @@ impl Store {
             sqlx::query(
                 "UPDATE runs SET status = 'interrupted', ended_at = ?, error = ? WHERE id = ?",
             )
-            .bind(crate::store::encode_ts(chrono::Utc::now()))
+            .bind(crate::store::encode_ts(jiff::Timestamp::now()))
             .bind(reason)
             .bind(run_id)
             .execute(&mut *tx)
@@ -321,7 +334,7 @@ impl Store {
         .bind(exit_code.map(i64::from))
         .bind(duration_ms.max(0))
         .bind(output_excerpt.map(|s| truncate_chars(s, 8_000)))
-        .bind(crate::store::encode_ts(chrono::Utc::now()))
+        .bind(crate::store::encode_ts(jiff::Timestamp::now()))
         .execute(self.pool())
         .await?;
 

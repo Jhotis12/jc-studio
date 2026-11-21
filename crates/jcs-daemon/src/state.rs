@@ -62,7 +62,7 @@ impl AppState {
             config,
             agent: AgentHandle::default(),
             started_at: Instant::now(),
-            started_at_ms: chrono::Utc::now().timestamp_millis(),
+            started_at_ms: jiff::Timestamp::now().as_millisecond(),
             permits,
         }
     }

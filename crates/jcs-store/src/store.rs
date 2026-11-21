@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{ConnectOptions, SqliteConnection, SqlitePool};
 use tracing::debug;
@@ -168,7 +168,7 @@ pub async fn append_event(store: &Store, event: jcs_core::NewEvent) -> Result<i6
     insert_event(&mut conn, &event).await
 }
 
-pub(crate) fn encode_ts(ts: DateTime<Utc>) -> String {
+pub(crate) fn encode_ts(ts: Timestamp) -> String {
     Event::encode_ts(ts)
 }
 
@@ -177,11 +177,9 @@ pub(crate) fn is_unique_violation(error: &dyn sqlx::error::DatabaseError) -> boo
     matches!(error.code().as_deref(), Some("2067") | Some("1555"))
 }
 
-pub(crate) fn decode_ts(value: &str) -> Result<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(value)
-        .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|e| StoreError::Corrupt {
-            table: "timestamp",
-            detail: format!("{value:?}: {e}"),
-        })
+pub(crate) fn decode_ts(value: &str) -> Result<Timestamp> {
+    value.parse::<Timestamp>().map_err(|e| StoreError::Corrupt {
+        table: "timestamp",
+        detail: format!("{value:?}: {e}"),
+    })
 }

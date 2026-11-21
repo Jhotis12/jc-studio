@@ -1,4 +1,4 @@
-use chrono::{DateTime, SecondsFormat, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{EventId, GoalId, ProjectId, RunId, TaskId};
@@ -114,7 +114,7 @@ impl EventKind {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewEvent {
     pub id: EventId,
-    pub ts: DateTime<Utc>,
+    pub ts: Timestamp,
     pub kind: EventKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_id: Option<ProjectId>,
@@ -131,7 +131,7 @@ impl NewEvent {
     pub fn new(kind: EventKind) -> Self {
         Self {
             id: EventId::new(),
-            ts: Utc::now(),
+            ts: Timestamp::now(),
             kind,
             project_id: None,
             goal_id: None,
@@ -141,7 +141,7 @@ impl NewEvent {
         }
     }
 
-    pub fn at(mut self, ts: DateTime<Utc>) -> Self {
+    pub fn at(mut self, ts: Timestamp) -> Self {
         self.ts = ts;
         self
     }
@@ -195,7 +195,7 @@ pub struct Event {
     /// Monotonic sequence assigned by SQLite. May contain gaps; never repeats.
     pub seq: i64,
     pub id: EventId,
-    pub ts: DateTime<Utc>,
+    pub ts: Timestamp,
     pub kind: EventKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_id: Option<ProjectId>,
@@ -211,8 +211,10 @@ pub struct Event {
 impl Event {
     /// Canonical timestamp format used in the database: RFC 3339, millisecond
     /// precision, UTC. Fixed precision keeps string ordering equal to time ordering.
-    pub fn encode_ts(ts: DateTime<Utc>) -> String {
-        ts.to_rfc3339_opts(SecondsFormat::Millis, true)
+    pub fn encode_ts(ts: Timestamp) -> String {
+        // Fixed millisecond precision, always UTC: lexicographic order in the database
+        // must equal chronological order.
+        ts.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
     }
 }
 
@@ -273,9 +275,7 @@ mod tests {
 
     #[test]
     fn timestamps_encode_with_fixed_precision_utc() {
-        let ts = DateTime::parse_from_rfc3339("2026-11-21T10:00:00.123456+02:00")
-            .unwrap()
-            .with_timezone(&Utc);
+        let ts: Timestamp = "2026-11-21T10:00:00.123456+02:00".parse().unwrap();
         let encoded = Event::encode_ts(ts);
         assert!(encoded.ends_with('Z'), "{encoded}");
         assert_eq!(encoded, "2026-11-21T08:00:00.123Z");

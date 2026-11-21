@@ -880,8 +880,8 @@ mod tests {
             project_id: jcs_core::ProjectId::new(),
             prompt: "do the thing".into(),
             status: GoalStatus::Running,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: jiff::Timestamp::now(),
+            updated_at: jiff::Timestamp::now(),
         };
         let prompt = build_prompt(&goal, std::path::Path::new("/tmp/wt"), "jcs/x/abc", "main");
 

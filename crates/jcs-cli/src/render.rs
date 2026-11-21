@@ -5,7 +5,7 @@ use jcs_core::{Event, EventKind, GateStatus, StatusMachine};
 
 /// Renders one event. Assistant text is printed inline so a run reads like a transcript.
 pub fn event(event: &Event, scope_is_current: bool) {
-    let ts = event.ts.format("%H:%M:%S");
+    let ts = event.ts.strftime("%H:%M:%S");
 
     match event.kind {
         EventKind::AgentText => {

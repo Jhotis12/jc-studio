@@ -215,7 +215,7 @@ async fn add_project(
         name,
         root_path: root,
         base_branch,
-        created_at: chrono::Utc::now(),
+        created_at: jiff::Timestamp::now(),
     };
 
     state.store.insert_project(&project).await?;
@@ -678,8 +678,8 @@ mod tests {
             attempt: 1,
             status: RunStatus::Succeeded,
             exit_code: Some(0),
-            started_at: chrono::Utc::now(),
-            ended_at: Some(chrono::Utc::now()),
+            started_at: jiff::Timestamp::now(),
+            ended_at: Some(jiff::Timestamp::now()),
             cost_usd: 0.5,
             tokens_in: 10,
             tokens_out: 20,

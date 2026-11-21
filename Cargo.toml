@@ -12,11 +12,11 @@ repository = "https://github.com/jhotis/jc-studio"
 
 [workspace.dependencies]
 # ---- internal ----
-jcs-core = { path = "crates/jcs-core" }
-jcs-proto = { path = "crates/jcs-proto" }
-jcs-store = { path = "crates/jcs-store" }
-jcs-agent = { path = "crates/jcs-agent" }
-jcs-git = { path = "crates/jcs-git" }
+jcs-core = { path = "crates/jcs-core", version = "0.1.0" }
+jcs-proto = { path = "crates/jcs-proto", version = "0.1.0" }
+jcs-store = { path = "crates/jcs-store", version = "0.1.0" }
+jcs-agent = { path = "crates/jcs-agent", version = "0.1.0" }
+jcs-git = { path = "crates/jcs-git", version = "0.1.0" }
 
 # ---- async runtime ----
 tokio = { version = "1", features = ["full"] }
@@ -35,8 +35,11 @@ tower = { version = "0.5", features = ["util"] }
 # ---- data ----
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sqlx = { version = "0.8", default-features = false, features = [
+sqlx = { version = "0.9", default-features = false, features = [
     "runtime-tokio",
+    # Bundled SQLite. sqlx 0.9 pins libsqlite3-sys 0.30.1, whose embedded SQLite is
+    # affected by RUSTSEC-2026-0459; see deny.toml for the accepted-risk rationale.
+    # The unbundled path (system SQLite 3.54.0) needs libclang to generate bindings.
     "sqlite",
     "migrate",
     "macros",
@@ -45,7 +48,7 @@ sqlx = { version = "0.8", default-features = false, features = [
 # ---- misc ----
 anyhow = "1"
 thiserror = "2"
-chrono = { version = "0.4", features = ["serde"] }
+jiff = { version = "1", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
 clap = { version = "4", features = ["derive", "env"] }

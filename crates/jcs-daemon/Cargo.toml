@@ -22,7 +22,7 @@ jcs-git = { workspace = true }
 anyhow = { workspace = true }
 axum = { workspace = true }
 bytes = { workspace = true }
-chrono = { workspace = true }
+jiff = { workspace = true }
 clap = { workspace = true }
 futures-util = { workspace = true }
 hyper = { workspace = true }
