@@ -2,12 +2,12 @@
 //! tools. The event log is the source; chunks are coalesced so a streamed answer reads as
 //! one message instead of one bubble per 200 ms.
 
-use egui::{Color32, RichText};
+use egui::RichText;
 
 use crate::app::Studio;
 use crate::daemon::Command;
 use crate::state::{task_progress, ActivityLine};
-use crate::ui::{badge, status_color, truncate};
+use crate::ui::{badge, status_color, theme, truncate};
 
 enum Item {
     Text(String),
@@ -39,13 +39,13 @@ pub fn panel(ui: &mut egui::Ui, app: &mut Studio) {
     let elapsed = app.state.task_elapsed_secs(&task);
 
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new("Chat").strong());
+        ui.label(RichText::new("Chat").size(14.0).strong().color(theme::TEXT));
         badge(ui, &task.status);
         crate::ui::stage_steps(ui, progress, 100.0);
         ui.label(
             RichText::new(format!("{} · {} tok", duration(elapsed), tokens))
-                .weak()
-                .small(),
+                .size(11.0)
+                .color(theme::FAINT),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
@@ -85,7 +85,8 @@ pub fn panel(ui: &mut egui::Ui, app: &mut Studio) {
                     } else {
                         "Sin actividad registrada todavía; el chat se actualiza en vivo."
                     })
-                    .weak(),
+                    .size(13.0)
+                    .color(theme::MUTED),
                 );
             }
 
@@ -133,16 +134,17 @@ fn user_message(ui: &mut egui::Ui, label: &str, text: &str) {
     }
     ui.add_space(4.0);
     egui::Frame::new()
-        .fill(Color32::from_rgb(48, 84, 130).gamma_multiply(0.28))
-        .inner_margin(egui::Margin::symmetric(8, 6))
+        .fill(theme::ACCENT_SOFT.gamma_multiply(0.55))
+        .corner_radius(theme::RADIUS_MD)
+        .inner_margin(egui::Margin::symmetric(11, 8))
         .show(ui, |ui| {
             ui.label(
                 RichText::new(label)
-                    .small()
+                    .size(11.0)
                     .strong()
-                    .color(Color32::from_rgb(140, 190, 245)),
+                    .color(theme::ACCENT),
             );
-            ui.label(RichText::new(text).size(13.5));
+            ui.label(RichText::new(text).size(14.0).color(theme::TEXT));
         });
     ui.add_space(3.0);
 }
@@ -152,14 +154,15 @@ fn assistant_message(ui: &mut egui::Ui, text: &str) {
         return;
     }
     egui::Frame::new()
-        .fill(Color32::from_rgb(26, 30, 38))
-        .inner_margin(egui::Margin::symmetric(8, 6))
+        .fill(theme::SURFACE_RAISED)
+        .corner_radius(theme::RADIUS_MD)
+        .inner_margin(egui::Margin::symmetric(11, 8))
         .show(ui, |ui| {
             ui.label(
                 RichText::new("Agente")
-                    .small()
+                    .size(11.0)
                     .strong()
-                    .color(Color32::from_rgb(150, 180, 230)),
+                    .color(theme::MUTED),
             );
             crate::ui::markdown::render(ui, text.trim());
         });
@@ -170,37 +173,30 @@ fn reasoning(ui: &mut egui::Ui, text: &str) {
     if text.trim().is_empty() {
         return;
     }
-    egui::CollapsingHeader::new(
-        RichText::new("Pensamiento")
-            .small()
-            .color(Color32::from_rgb(130, 140, 165)),
-    )
-    .default_open(false)
-    .show(ui, |ui| {
-        ui.label(
-            RichText::new(truncate(text.trim(), 8_000))
-                .italics()
-                .size(12.0)
-                .color(Color32::from_rgb(130, 140, 165)),
-        );
-    });
+    egui::CollapsingHeader::new(RichText::new("Pensamiento").size(11.0).color(theme::FAINT))
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new(truncate(text.trim(), 8_000))
+                    .italics()
+                    .size(12.5)
+                    .color(theme::MUTED),
+            );
+        });
 }
 
 fn tool(ui: &mut egui::Ui, failed: bool, detail: &str) {
-    let color = if failed {
-        Color32::from_rgb(225, 110, 110)
-    } else {
-        Color32::from_rgb(105, 165, 235)
-    };
+    let color = if failed { theme::DANGER } else { theme::ACCENT };
     let icon = if failed { "✗" } else { "→" };
     egui::Frame::new()
-        .fill(color.gamma_multiply(0.08))
-        .inner_margin(egui::Margin::symmetric(6, 3))
+        .fill(color.gamma_multiply(0.09))
+        .corner_radius(theme::RADIUS_SM)
+        .inner_margin(egui::Margin::symmetric(8, 4))
         .show(ui, |ui| {
             ui.label(
                 RichText::new(format!("{icon} {detail}"))
                     .monospace()
-                    .size(11.5)
+                    .size(12.0)
                     .color(color),
             );
         });
@@ -214,18 +210,32 @@ fn system_line(ui: &mut egui::Ui, line: &ActivityLine) {
         _ => "running",
     });
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(&line.time).monospace().weak().small());
-        ui.label(RichText::new(&line.kind).monospace().small().color(color));
+        ui.label(
+            RichText::new(&line.time)
+                .monospace()
+                .size(11.0)
+                .color(theme::FAINT),
+        );
+        ui.label(
+            RichText::new(&line.kind)
+                .monospace()
+                .size(11.0)
+                .color(color),
+        );
         if !line.detail.is_empty() {
             ui.label(
                 RichText::new(truncate(&line.detail, 240))
                     .monospace()
-                    .small()
-                    .weak(),
+                    .size(11.0)
+                    .color(theme::MUTED),
             );
         }
         if line.count > 1 {
-            ui.label(RichText::new(format!("×{}", line.count)).weak().small());
+            ui.label(
+                RichText::new(format!("×{}", line.count))
+                    .size(11.0)
+                    .color(theme::FAINT),
+            );
         }
     });
 }

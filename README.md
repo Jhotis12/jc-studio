@@ -263,6 +263,8 @@ a él por el mismo socket que el CLI.
 - Chat por tarea y del Orquestador: Markdown renderizado, respuesta en streaming cuando el
   modelo lo permite, pensamiento, herramientas con nombre/entrada/salida y actividad actual
   por tarea. La pestaña Código abre el worktree de la tarea y su diff.
+- Interfaz de consola: tipografía legible, tarjetas de objetivo/tarea, navegación en pestañas
+  y compositor colapsable para dar prioridad al trabajo en ventanas pequeñas.
 - Skills/MCP: catálogo de OpenCode, activación de skills por sesión y MCP en caliente.
 - Objetivos: cancelar, eliminar y reintentar; filtro por texto y terminados. Iterar una
   tarea con indicaciones, reintentar bloqueadas o volver a intentar un merge.

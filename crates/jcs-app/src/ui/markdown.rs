@@ -28,10 +28,10 @@ pub fn render(ui: &mut egui::Ui, text: &str) {
 
         if let Some((level, title)) = heading(leading) {
             let size = match level {
-                1 => 19.0,
-                2 => 17.0,
-                3 => 15.5,
-                _ => 14.0,
+                1 => 21.0,
+                2 => 18.5,
+                3 => 16.5,
+                _ => 15.0,
             };
             ui.add_space(if level <= 2 { 6.0 } else { 3.0 });
             ui.label(RichText::new(title).strong().size(size));
@@ -206,7 +206,7 @@ fn code_block(ui: &mut egui::Ui, language: &str, code: &str) {
             egui::ScrollArea::horizontal()
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    ui.label(RichText::new(code).monospace().size(12.0));
+                    ui.label(RichText::new(code).monospace().size(13.0));
                 });
         });
     ui.add_space(3.0);
@@ -222,12 +222,12 @@ fn inline(ui: &mut egui::Ui, text: &str) {
     job.wrap.break_anywhere = false;
 
     let base = TextFormat {
-        font_id: FontId::proportional(13.5),
+        font_id: FontId::proportional(14.5),
         color: ui.visuals().text_color(),
         ..Default::default()
     };
     let strong = TextFormat {
-        font_id: FontId::proportional(13.5),
+        font_id: FontId::proportional(14.5),
         color: ui.visuals().strong_text_color(),
         extra_letter_spacing: 0.2,
         ..Default::default()
@@ -237,7 +237,7 @@ fn inline(ui: &mut egui::Ui, text: &str) {
         ..base.clone()
     };
     let code = TextFormat {
-        font_id: FontId::monospace(12.5),
+        font_id: FontId::monospace(13.5),
         color: Color32::from_rgb(210, 190, 140),
         background: Color32::from_rgb(30, 33, 40),
         ..Default::default()

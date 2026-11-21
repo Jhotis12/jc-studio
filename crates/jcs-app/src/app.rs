@@ -228,6 +228,10 @@ pub struct Studio {
     pub skill_filter: String,
     pub goal_filter: String,
     pub show_finished_goals: bool,
+    /// The composer is collapsed when there are goals to watch, so the board gets the
+    /// vertical space. The first frame decides from the real list, once.
+    pub show_composer: bool,
+    pub composer_initialized: bool,
     pub iteration_for: Option<String>,
     pub iteration_feedback: String,
     pub orchestrator_input: String,
@@ -243,13 +247,24 @@ pub struct Studio {
 
 impl Studio {
     pub fn new() -> Self {
+        // `JCS_TAB` is a screenshot/debug hook; normal startup is Goals.
+        let initial_tab = match std::env::var("JCS_TAB").ok().as_deref() {
+            Some("code") => Tab::Code,
+            Some("details") => Tab::Details,
+            Some("orchestrator") => Tab::Orchestrator,
+            Some("extensions") => Tab::Extensions,
+            Some("policy") => Tab::Policy,
+            Some("memory") => Tab::Memory,
+            Some("system") => Tab::System,
+            _ => Tab::default(),
+        };
         Self {
             state: State {
                 connection: Some(crate::state::Connection::Connecting),
                 ..State::default()
             },
             daemon: Daemon::spawn(paths::socket_path()),
-            tab: Tab::default(),
+            tab: initial_tab,
             objective: String::new(),
             plan: true,
             model: String::new(),
@@ -277,6 +292,8 @@ impl Studio {
             skill_filter: String::new(),
             goal_filter: String::new(),
             show_finished_goals: true,
+            show_composer: true,
+            composer_initialized: false,
             iteration_for: None,
             iteration_feedback: String::new(),
             orchestrator_input: String::new(),

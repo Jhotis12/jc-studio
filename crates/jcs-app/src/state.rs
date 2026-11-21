@@ -67,7 +67,7 @@ impl TaskActivity {
             ("agent_tool_finished", false) => "herramienta terminada",
             ("gate_started" | "gate_finished", _) => "verificando",
             ("run_started", _) => "agente iniciado",
-            ("task_status_changed", _) => "cambiando de etapa",
+            ("run_finished", _) => "ejecución terminada",
             ("commit_created", _) => "commit creado",
             ("merge_finished", _) => "integrando",
             ("error", _) => "error",
@@ -456,7 +456,7 @@ impl State {
                 | "gate_started"
                 | "gate_finished"
                 | "run_started"
-                | "task_status_changed"
+                | "run_finished"
                 | "commit_created"
                 | "merge_finished"
                 | "error"
@@ -749,6 +749,12 @@ fn summarize(event: &Event) -> String {
                 .unwrap_or_default();
             format!("{tool} · {}", detail.trim())
         }
+        "run_finished" => payload
+            .get("error")
+            .and_then(|value| value.as_str())
+            .unwrap_or("terminó")
+            .to_string(),
+        "run_started" => String::new(),
         "error" => {
             let reason = payload
                 .get("reason")

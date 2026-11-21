@@ -20,7 +20,7 @@ en paralelo con leases, las verifica con gates, las integra en una rama de objet
 promociona a la base; indexa el código, le pasa al agente contexto citado y la app de
 escritorio permite operar todo sin tocar la consola.
 
-- 12 crates, **343 tests**, árbol limpio.
+- 12 crates, **345 tests**, árbol limpio.
 - `cargo fmt --check`, `cargo clippy -D warnings`, `cargo nextest`, `cargo deny check`:
   todo en verde.
 - Soak verde; tarball Linux con `jcsd`, `jcs` y `jc-studio` (`./scripts/package.sh`).
@@ -31,7 +31,7 @@ escritorio permite operar todo sin tocar la consola.
 
 ```bash
 cargo build --bins
-cargo nextest run --workspace        # 343 tests
+cargo nextest run --workspace        # 345 tests
 python3 scripts/check_contract.py    # contrato de OpenCode
 cargo deny check                     # licencias y avisos
 ```
@@ -194,8 +194,13 @@ consola. La decisión y las alternativas están en la
   Las acciones lentas (gates, indexación) se lanzan en su propia tarea.
 - `src/state.rs`: espejo del snapshot; selección, coste por objetivo, deduplicación de
   eventos por `seq`, consola acotada a 1000 líneas.
-- `src/ui/`: shell responsive (tres paneles en ventana ancha, pestaña Detalle en estrecha),
+- `src/ui/`: shell responsive (tres paneles a partir de 1160 px, pestaña Detalle por debajo),
   tablero, detalle, política, memoria, sistema, ajustes y ventanas modales.
+- `src/ui/theme.rs`: tokens de color, superficies, radios y escala tipográfica
+  (`Heading` 21, `Body` 14, `Monospace` 13, `Button` 13.5, `Small` 11.5). Los paneles usan
+  `theme::card`, `theme::bar` y `theme::pill`; no inventar colores sueltos para estados. El
+  metadato mínimo usa `FAINT` (contraste 5,5:1). Decisión y capturas en la
+  [ADR 0018](adr/0018-ui-visual-system.md).
 - `src/terminal.rs`: `portable-pty` + `vt100` (no `egui_term`, anclado a egui viejo).
   Teclado, scrollback con rueda, resize del PTY y color 256. Las sesiones viven en el proceso
   de la app; **mover el PTY al daemon es el siguiente paso** para que sobrevivan al cierre.
@@ -212,15 +217,16 @@ consola. La decisión y las alternativas están en la
   completada 100 %), barras por tarea en la tarjeta del objetivo, grafo del plan y traza del
   agente (razonamiento, texto, herramientas, gates). El motivo de espera se calcula en la UI
   a partir de dependencias, claims y capacidad; el daemon sigue siendo la autoridad.
-- Editor: pestaña «Código» con árbol, edición, guardado, archivos nuevos, diff del worktree
-  contra la base y protección de cambios sin guardar. La pestaña abre por defecto el worktree
+- Editor: pestaña «Código» con árbol, edición, guardado, archivos nuevos (botón `+`), diff
+  del worktree contra la base y protección de cambios sin guardar. Explorador compacto:
+  selector de worktree en lugar de checkbox y sin etiqueta de raíz duplicada. La pestaña abre por defecto el worktree
   de la tarea seleccionada; si esa tarea aún no tiene, muestra el más reciente. Un selector
   permite volver a la raíz y «Ver cambios» (en el detalle) carga el diff. Si el worktree ya se
   integró y se eliminó, cae al más reciente con aviso.
   Es edición local, no orquestación: el daemon no participa en leer/escribir archivos.
 - Actividad: `State::task_activity` guarda la última acción por tarea fuera de la consola
   acotada (razonando, escribiendo, herramienta, gate, commit, merge) y el tablero/detalle
-  muestran su edad. El evento de integración solo se emite cuando la rama está estrictamente
+  muestran su edad; en tareas terminales la etiqueta es «Última actividad», no «Ahora». El evento de integración solo se emite cuando la rama está estrictamente
   detrás de la base; la igualdad no cuenta.
 - Telegram: token de escritura única en `secrets.json` (0600), chats permitidos en `settings`,
   y aviso de reinicio. La API solo devuelve `telegram_configured` y los últimos cuatro

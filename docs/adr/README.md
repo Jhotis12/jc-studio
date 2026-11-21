@@ -26,6 +26,7 @@ nunca se renumera; si una decisión cambia, se escribe uno nuevo y el anterior p
 | [0015](0015-orchestrator-chat.md) | Chat del Orquestador separado de los objetivos y guard de saludos | Accepted |
 | [0016](0016-markdown-and-streaming.md) | Markdown local y streaming del Orquestador por el event log | Accepted |
 | [0017](0017-secrets-scope.md) | El gate de secretos escanea solo las líneas que añade la tarea | Accepted |
+| [0018](0018-ui-visual-system.md) | Sistema visual denso y legible para la consola de escritorio | Accepted |
 
 ## Cómo añadir una ADR
 

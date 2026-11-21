@@ -5,7 +5,7 @@ use egui::{Color32, RichText};
 use crate::app::{ConsoleTab, Studio};
 use crate::daemon::Command;
 use crate::state::task_progress;
-use crate::ui::{badge, dag, metric, status_color};
+use crate::ui::{badge, dag, metric, status_color, theme};
 
 pub fn goal(ui: &mut egui::Ui, app: &mut Studio) {
     let Some(goal) = app.state.selected_goal().cloned() else {
@@ -62,54 +62,65 @@ pub fn goal(ui: &mut egui::Ui, app: &mut Studio) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                badge(ui, &goal.status);
-                ui.label(
-                    RichText::new(crate::daemon::short(&goal.id))
-                        .monospace()
-                        .weak()
-                        .small(),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .small_button("×")
-                        .on_hover_text("cerrar detalle")
-                        .clicked()
-                    {
-                        app.state.selected_goal = None;
-                        app.state.selected_task = None;
-                    }
+            theme::card(false).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    badge(ui, &goal.status);
+                    ui.label(
+                        RichText::new(crate::daemon::short(&goal.id))
+                            .monospace()
+                            .size(11.0)
+                            .color(theme::FAINT),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new("×").size(15.0).color(theme::MUTED),
+                                )
+                                .min_size(egui::vec2(28.0, 28.0)),
+                            )
+                            .on_hover_text("cerrar detalle")
+                            .clicked()
+                        {
+                            app.state.selected_goal = None;
+                            app.state.selected_task = None;
+                        }
+                    });
                 });
+
+                ui.add_space(7.0);
+                ui.label(RichText::new(&goal.prompt).size(15.0).color(theme::TEXT));
+
+                ui.add_space(9.0);
+                ui.horizontal(|ui| {
+                    metric(ui, "coste", format!("${cost:.4}"));
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+                    metric(ui, "entrada", tokens_in.to_string());
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+                    metric(ui, "salida", tokens_out.to_string());
+                });
+
+                if total > 0 {
+                    ui.add_space(9.0);
+                    crate::ui::task_strip(ui, &tasks);
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(format!(
+                            "{succeeded}/{total} completadas · {running} en curso · \
+                             {verifying} verificando · {pending} en cola · {blocked} bloqueadas · \
+                             {failed} fallidas"
+                        ))
+                        .size(11.0)
+                        .color(theme::MUTED),
+                    );
+                }
             });
 
-            ui.add_space(6.0);
-            egui::Frame::group(ui.style()).show(ui, |ui| {
-                ui.label(RichText::new(&goal.prompt).size(14.0));
-            });
-
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                metric(ui, "coste", format!("${cost:.4}"));
-                ui.separator();
-                metric(ui, "tokens entrada", tokens_in.to_string());
-                ui.separator();
-                metric(ui, "tokens salida", tokens_out.to_string());
-            });
-
-            if total > 0 {
-                ui.add_space(8.0);
-                crate::ui::task_strip(ui, &tasks);
-                ui.add_space(2.0);
-                ui.label(
-                    RichText::new(format!(
-                        "{succeeded}/{total} completadas · {running} en curso ·                          {verifying} verificando · {pending} en cola · {blocked} bloqueadas ·                          {failed} fallidas"
-                    ))
-                    .weak()
-                    .small(),
-                );
-            }
-
-            ui.add_space(8.0);
+            ui.add_space(10.0);
             ui.horizontal_wrapped(|ui| {
                 if goal.status == "blocked"
                     && ui
@@ -274,20 +285,14 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
     let elapsed = app.state.task_elapsed_secs(task);
     let tokens = app.state.task_tokens(&task.id);
 
-    let frame = egui::Frame::group(ui.style()).fill(if selected {
-        ui.visuals().selection.bg_fill.gamma_multiply(0.18)
-    } else {
-        ui.visuals().faint_bg_color
-    });
-
-    frame.show(ui, |ui| {
+    theme::card(selected).show(ui, |ui| {
         ui.horizontal(|ui| {
             badge(ui, &task.status);
             if task.merge_error.is_some() {
                 badge(ui, "merge bloqueado");
             }
             if ui
-                .selectable_label(selected, RichText::new(&task.title).strong())
+                .selectable_label(selected, RichText::new(&task.title).size(14.5).strong())
                 .on_hover_text("Ver la actividad del agente para esta tarea")
                 .clicked()
             {
@@ -295,45 +300,61 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
             }
         });
 
-        ui.add_space(3.0);
+        ui.add_space(6.0);
         ui.horizontal(|ui| {
-            crate::ui::stage_steps(ui, progress, 120.0);
+            crate::ui::stage_steps(ui, progress, 130.0);
             ui.label(
                 RichText::new(format!("{} · {} tok", duration(elapsed), tokens))
-                    .weak()
-                    .small(),
+                    .size(11.0)
+                    .color(theme::FAINT),
             );
         });
 
         if let Some(activity) = app.state.task_activity(&task.id) {
+            ui.add_space(5.0);
             ui.label(
                 RichText::new(format!(
-                    "Ahora: {} · hace {}s",
+                    "{}: {} · hace {}s",
+                    if progress.stage.active() {
+                        "Ahora"
+                    } else {
+                        "Última actividad"
+                    },
                     activity.label(),
                     activity.age_secs()
                 ))
-                .small()
-                .color(Color32::from_rgb(150, 190, 230)),
+                .size(11.5)
+                .color(if progress.stage.active() {
+                    theme::ACCENT
+                } else {
+                    theme::MUTED
+                }),
             );
             if !activity.detail.trim().is_empty() {
                 ui.label(
                     RichText::new(crate::ui::truncate(&activity.detail, 180))
-                        .small()
+                        .size(11.5)
                         .italics()
-                        .weak(),
+                        .color(theme::MUTED),
                 );
             }
         }
 
+        ui.add_space(5.0);
         ui.horizontal_wrapped(|ui| {
             ui.label(
                 RichText::new(crate::daemon::short(&task.id))
                     .monospace()
-                    .weak()
-                    .small(),
+                    .size(10.5)
+                    .color(theme::FAINT),
             );
             if let Some(branch) = &task.branch {
-                ui.label(RichText::new(branch).monospace().weak().small());
+                ui.label(
+                    RichText::new(crate::ui::truncate(branch, 38))
+                        .monospace()
+                        .size(10.5)
+                        .color(theme::FAINT),
+                );
             }
         });
 
@@ -344,20 +365,24 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
                 .map(|id| crate::daemon::short(id).to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-            ui.label(RichText::new(format!("depende de {names}")).weak().small());
+            ui.label(
+                RichText::new(format!("depende de {names}"))
+                    .size(11.0)
+                    .color(theme::MUTED),
+            );
         }
         if let Some(reason) = app.state.task_wait_reason(task) {
             ui.label(
                 RichText::new(format!("en espera · {reason}"))
-                    .small()
-                    .color(Color32::from_rgb(230, 170, 90)),
+                    .size(11.5)
+                    .color(theme::WARNING),
             );
         }
         if let Some(error) = &task.merge_error {
             ui.label(
                 RichText::new(format!("integración fallida: {error}"))
-                    .small()
-                    .color(Color32::from_rgb(225, 110, 110)),
+                    .size(11.5)
+                    .color(theme::DANGER),
             );
             if ui
                 .small_button("Reintentar integración")
@@ -373,6 +398,7 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
             }
         }
 
+        ui.add_space(7.0);
         ui.horizontal_wrapped(|ui| {
             if ui
                 .small_button("Chat del agente")
@@ -410,7 +436,18 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
             if let Some(worktree) = &task.worktree {
                 if std::path::Path::new(worktree).exists()
                     && ui
-                        .small_button("Ver cambios")
+                        .add(
+                            egui::Button::new(
+                                RichText::new("Ver cambios").size(12.0).color(theme::ACCENT),
+                            )
+                            .fill(theme::ACCENT_SOFT)
+                            .stroke(egui::Stroke::new(
+                                1.0_f32,
+                                theme::ACCENT.gamma_multiply(0.45),
+                            ))
+                            .corner_radius(egui::CornerRadius::same(6))
+                            .min_size(egui::vec2(0.0, 28.0)),
+                        )
                         .on_hover_text("Abre el worktree de la tarea y su diff contra la base.")
                         .clicked()
                 {

@@ -129,6 +129,11 @@ El razonamiento y las alternativas están en la [ADR 0010](adr/0010-desktop-app-
       hay merges pendientes, el objetivo pasa a `blocked`/`failed` con `goal_stalled` en vez
       de quedarse `running` para siempre. `ensure_integration_branch` ya no escribe un evento
       por tick.
+- [x] 8.21 Sistema visual: tokens de color/espaciado/radios, escala tipográfica
+      (14/13.5/13/11.5), barra superior con marca y gasto, navegación en pestañas, laterales
+      con superficie, tarjetas de objetivo y tarea, compositor colapsable cuando hay trabajo,
+      consola de 150 px, explorador de Código compacto y tres paneles solo a partir de
+      1160 px. Contraste mínimo de metadatos 5,5:1. Verificado a 941×568 y 1380×880.
 - [x] 8.20 Visibilidad real del trabajo: las herramientas de OpenCode se decodifican con su
       forma nativa (`session.tool.input.started`, `session.tool.called`,
       `session.tool.success`) y el chat muestra nombre, entrada y salida; la tarjeta del
@@ -180,7 +185,7 @@ API esté documentada y probada.
 
 | Comando | Qué demuestra |
 |---|---|
-| `cargo nextest run --workspace` | **343 tests** unitarios, de propiedad y de integración |
+| `cargo nextest run --workspace` | **345 tests** unitarios, de propiedad y de integración |
 | `just e2e` | objetivo → worktree → agente → gates → commit |
 | `just e2e-policy` | gate que exige un token: prueba el bucle de reparación |
 | `just e2e-plan` | objetivo → plan → DAG → tareas → entregables |

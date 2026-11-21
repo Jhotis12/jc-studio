@@ -24,24 +24,8 @@ fn main() -> eframe::Result<()> {
         "JC Studio",
         options,
         Box::new(|context| {
-            style(&context.egui_ctx);
+            ui::theme::apply(&context.egui_ctx);
             Ok(Box::new(app::Studio::new()))
         }),
     )
-}
-
-/// Dark, compact and monospace-friendly: this is an operator console, not a marketing page.
-fn style(context: &egui::Context) {
-    let mut visuals = egui::Visuals::dark();
-    visuals.panel_fill = egui::Color32::from_rgb(18, 20, 25);
-    visuals.window_fill = egui::Color32::from_rgb(22, 24, 30);
-    visuals.extreme_bg_color = egui::Color32::from_rgb(12, 14, 18);
-    visuals.faint_bg_color = egui::Color32::from_rgb(24, 27, 33);
-    visuals.selection.bg_fill = egui::Color32::from_rgb(48, 84, 130);
-    context.set_visuals(visuals);
-
-    let mut style = (*context.style()).clone();
-    style.spacing.item_spacing = egui::vec2(8.0, 6.0);
-    style.spacing.button_padding = egui::vec2(8.0, 4.0);
-    context.set_style(style);
 }

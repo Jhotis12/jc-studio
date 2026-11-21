@@ -12,6 +12,7 @@ use egui::{Color32, RichText};
 
 use crate::app::Studio;
 use crate::daemon::short;
+use crate::ui::theme;
 
 const SKIP_DIRS: &[&str] = &[
     ".git",
@@ -62,6 +63,7 @@ pub struct CodeState {
     pub open: Option<OpenFile>,
     pub pending_open: Option<PathBuf>,
     pub search: String,
+    pub show_new_file: bool,
     pub new_path: String,
     pub show_diff: bool,
     /// Set when another view asks for the diff; applied after the root changes.
@@ -84,6 +86,7 @@ impl Default for CodeState {
             open: None,
             pending_open: None,
             search: String::new(),
+            show_new_file: false,
             new_path: String::new(),
             show_diff: false,
             pending_diff: false,
@@ -341,6 +344,22 @@ fn build_tree(directory: &Path, depth: usize, count: &mut usize) -> Vec<FileNode
     nodes
 }
 
+/// A tiny extension marker, not an icon font: it scans without pretending to be a file
+/// manager and stays legible at 12 px.
+fn file_marker(name: &str) -> Color32 {
+    let extension = Path::new(name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default();
+    match extension {
+        "rs" => theme::WARNING,
+        "ts" | "tsx" | "js" | "jsx" | "vue" => theme::ACCENT,
+        "json" | "toml" | "yaml" | "yml" => theme::SUCCESS,
+        "md" => theme::MUTED,
+        _ => theme::FAINT,
+    }
+}
+
 fn flatten<'a>(nodes: &'a [FileNode], out: &mut Vec<&'a FileNode>) {
     for node in nodes {
         if !node.is_dir {
@@ -385,13 +404,19 @@ pub fn panel(ui: &mut egui::Ui, app: &mut Studio) {
     }
 
     let height = ui.available_height();
+    let explorer_width = (ui.available_width() * 0.34).clamp(220.0, 300.0);
     ui.horizontal_top(|ui| {
-        ui.allocate_ui_with_layout(
-            egui::vec2(230.0, height),
-            egui::Layout::top_down(egui::Align::LEFT),
-            |ui| explorer(ui, app),
-        );
-        ui.separator();
+        theme::card(false).show(ui, |ui| {
+            ui.set_min_width(explorer_width);
+            ui.set_max_width(explorer_width);
+            ui.set_min_height(height);
+            ui.allocate_ui_with_layout(
+                egui::vec2(explorer_width, height),
+                egui::Layout::top_down(egui::Align::LEFT),
+                |ui| explorer(ui, app),
+            );
+        });
+        ui.add_space(8.0);
         ui.vertical(|ui| editor(ui, app));
     });
 }
@@ -443,7 +468,13 @@ fn desired_root(app: &Studio) -> Option<(PathBuf, String)> {
 
 fn explorer(ui: &mut egui::Ui, app: &mut Studio) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Archivos").strong());
+        ui.label(
+            RichText::new("Archivos")
+                .size(14.0)
+                .strong()
+                .color(theme::TEXT),
+        )
+        .on_hover_text(&app.code.root_label);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
                 .small_button("↻")
@@ -452,9 +483,15 @@ fn explorer(ui: &mut egui::Ui, app: &mut Studio) {
             {
                 app.code.refresh();
             }
+            if ui
+                .small_button("+")
+                .on_hover_text("crear un archivo")
+                .clicked()
+            {
+                app.code.show_new_file = !app.code.show_new_file;
+            }
         });
     });
-    ui.label(RichText::new(&app.code.root_label).weak().small());
 
     let worktrees: Vec<(String, String)> = app
         .state
@@ -494,7 +531,7 @@ fn explorer(ui: &mut egui::Ui, app: &mut Studio) {
         ui.label(RichText::new("Ver").small().weak());
         egui::ComboBox::from_id_salt("code-task")
             .selected_text(selected_label)
-            .width(190.0)
+            .width(150.0)
             .show_ui(ui, |ui| {
                 if ui
                     .selectable_label(
@@ -538,36 +575,35 @@ fn explorer(ui: &mut egui::Ui, app: &mut Studio) {
                 "La tarea seleccionada no tiene worktree; se muestra el más reciente."
             })
             .small()
-            .color(Color32::from_rgb(230, 170, 90)),
+            .color(theme::WARNING),
         );
     }
-    ui.add_enabled_ui(!worktrees.is_empty(), |ui| {
-        ui.checkbox(&mut app.code.prefer_worktree, "ver worktree de la tarea");
-    });
-
-    ui.add_space(4.0);
+    ui.add_space(2.0);
     ui.add(
         egui::TextEdit::singleline(&mut app.code.search)
             .hint_text("buscar archivo")
             .desired_width(f32::INFINITY),
     );
 
-    ui.horizontal(|ui| {
-        ui.add(
-            egui::TextEdit::singleline(&mut app.code.new_path)
-                .hint_text("ruta/nuevo.rs")
-                .desired_width(140.0),
-        );
-        if ui.small_button("+ Archivo").clicked() {
-            app.code.create_file();
-        }
-    });
+    if app.code.show_new_file {
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut app.code.new_path)
+                    .hint_text("ruta/nuevo.rs")
+                    .desired_width(110.0),
+            );
+            if ui.small_button("Crear").clicked() {
+                app.code.create_file();
+                app.code.show_new_file = false;
+            }
+        });
+    }
 
     if let Some((message, error)) = &app.code.status {
-        ui.label(RichText::new(message).small().color(if *error {
-            Color32::from_rgb(225, 110, 110)
+        ui.label(RichText::new(message).size(11.5).color(if *error {
+            theme::DANGER
         } else {
-            Color32::from_rgb(120, 200, 130)
+            theme::SUCCESS
         }));
     }
     ui.separator();
@@ -612,26 +648,36 @@ fn explorer(ui: &mut egui::Ui, app: &mut Studio) {
 
 fn node_ui(ui: &mut egui::Ui, app: &mut Studio, node: &FileNode, depth: usize) {
     if node.is_dir {
-        egui::CollapsingHeader::new(RichText::new(&node.name).strong().size(12.5))
-            .id_salt(&node.path)
-            .default_open(depth == 0)
-            .show(ui, |ui| {
-                for child in &node.children {
-                    node_ui(ui, app, child, depth + 1);
-                }
-            });
+        egui::CollapsingHeader::new(
+            RichText::new(&node.name)
+                .strong()
+                .size(13.0)
+                .color(theme::TEXT),
+        )
+        .id_salt(&node.path)
+        .default_open(depth == 0)
+        .show(ui, |ui| {
+            for child in &node.children {
+                node_ui(ui, app, child, depth + 1);
+            }
+        });
     } else {
         let selected = app
             .code
             .open
             .as_ref()
             .is_some_and(|file| file.path == node.path);
-        if ui
-            .selectable_label(selected, RichText::new(&node.name).monospace().size(12.5))
-            .clicked()
-        {
-            request_open(app, node.path.clone());
-        }
+        ui.horizontal(|ui| {
+            let (marker, _) = ui.allocate_exact_size(egui::vec2(5.0, 5.0), egui::Sense::hover());
+            ui.painter()
+                .circle_filled(marker.center(), 2.5, file_marker(&node.name));
+            if ui
+                .selectable_label(selected, RichText::new(&node.name).monospace().size(12.5))
+                .clicked()
+            {
+                request_open(app, node.path.clone());
+            }
+        });
     }
 }
 
@@ -664,8 +710,22 @@ fn editor(ui: &mut egui::Ui, app: &mut Studio) {
     }
 
     let Some(path) = app.code.open.as_ref().map(|file| file.path.clone()) else {
-        ui.add_space(12.0);
-        ui.label(RichText::new("Selecciona un archivo del árbol para editarlo.").weak());
+        ui.add_space(48.0);
+        ui.vertical_centered(|ui| {
+            ui.label(
+                RichText::new("Selecciona un archivo para editarlo")
+                    .size(16.0)
+                    .color(theme::TEXT),
+            );
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new(
+                    "El árbol muestra el worktree de la tarea o la raíz del proyecto.                      Pulsa «Cambios» para ver el diff contra la rama base.",
+                )
+                .size(12.0)
+                .color(theme::MUTED),
+            );
+        });
         return;
     };
     let dirty = app.code.open.as_ref().is_some_and(OpenFile::dirty);
@@ -678,9 +738,19 @@ fn editor(ui: &mut egui::Ui, app: &mut Studio) {
         .unwrap_or_else(|| path.display().to_string());
 
     ui.horizontal(|ui| {
-        ui.label(RichText::new(&relative).monospace().strong());
+        ui.label(
+            RichText::new(&relative)
+                .monospace()
+                .size(13.0)
+                .strong()
+                .color(theme::TEXT),
+        );
         if dirty {
-            ui.colored_label(Color32::from_rgb(230, 170, 90), "sin guardar");
+            ui.label(
+                RichText::new("sin guardar")
+                    .size(11.0)
+                    .color(theme::WARNING),
+            );
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button("Guardar").clicked() {
@@ -824,17 +894,17 @@ fn diff_panel(ui: &mut egui::Ui, app: &mut Studio) {
         .show(ui, |ui| {
             for line in diff.lines().take(MAX_DIFF_LINES) {
                 let color = if line.starts_with("+++") || line.starts_with("---") {
-                    Color32::from_rgb(160, 160, 170)
+                    theme::MUTED
                 } else if line.starts_with('+') {
-                    Color32::from_rgb(120, 200, 130)
+                    theme::SUCCESS
                 } else if line.starts_with('-') {
-                    Color32::from_rgb(225, 110, 110)
+                    theme::DANGER
                 } else if line.starts_with("@@") {
-                    Color32::from_rgb(105, 165, 235)
+                    theme::ACCENT
                 } else {
-                    Color32::from_rgb(200, 200, 210)
+                    theme::TEXT
                 };
-                ui.label(RichText::new(line).monospace().size(12.0).color(color));
+                ui.label(RichText::new(line).monospace().size(12.5).color(color));
             }
         });
 }
