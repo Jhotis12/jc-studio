@@ -51,6 +51,30 @@ enum Command {
     Logs(LogsArgs),
     /// Inspect runs and their gates.
     Runs(RunsArgs),
+    /// Build or refresh the code index.
+    Index {
+        /// Project name or path; defaults to the current directory.
+        project: Option<String>,
+        /// Re-parse every file, ignoring content hashes.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Search the code index.
+    Search {
+        /// Project name or path; defaults to the current directory.
+        #[arg(long, short = 'p')]
+        project: Option<String>,
+        /// What to search for.
+        #[arg(required = true, num_args = 1..)]
+        query: Vec<String>,
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
+    /// Show index statistics.
+    Memory {
+        /// Project name or path; defaults to the current directory.
+        project: Option<String>,
+    },
     /// Show a goal with its tasks and runs.
     Goal {
         /// Goal id, as printed by `jcs ask`.
@@ -258,6 +282,13 @@ async fn run(cli: Cli, client: Client) -> Result<()> {
         Command::Status => status(&client, json).await,
         Command::Logs(args) => logs(&client, args, json).await,
         Command::Runs(args) => runs(&client, args, json).await,
+        Command::Index { project, force } => index(&client, project, force, json).await,
+        Command::Search {
+            project,
+            query,
+            limit,
+        } => search(&client, project, query, limit, json).await,
+        Command::Memory { project } => memory(&client, project, json).await,
         Command::Goal { goal } => show_goal(&client, &goal, json).await,
         Command::Resume { goal } => {
             let response = client.resume_goal(&goal).await?;
@@ -641,6 +672,94 @@ async fn logs(client: &Client, args: LogsArgs, json: bool) -> Result<()> {
         } else {
             render::event(&event, true);
         }
+    }
+    Ok(())
+}
+
+async fn index(client: &Client, project: Option<String>, force: bool, json: bool) -> Result<()> {
+    let project = project_or_cwd(project)?;
+    let response = client.memory_index(&project, force).await?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&response)?);
+        return Ok(());
+    }
+
+    let report = &response.report;
+    println!(
+        "indexed {} files ({} unchanged, {} removed) · {} symbols · {} chunks · {} embeddings · {} ms",
+        report.files_indexed,
+        report.files_skipped,
+        report.files_removed,
+        report.symbols,
+        report.chunks,
+        report.embeddings,
+        report.duration_ms
+    );
+    for error in report.errors.iter().take(5) {
+        println!("  warning: {error}");
+    }
+    Ok(())
+}
+
+async fn search(
+    client: &Client,
+    project: Option<String>,
+    query: Vec<String>,
+    limit: usize,
+    json: bool,
+) -> Result<()> {
+    let project = project_or_cwd(project)?;
+    let query = query.join(" ");
+    let response = client.memory_search(&project, &query, limit).await?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&response)?);
+        return Ok(());
+    }
+
+    if response.hits.is_empty() {
+        println!("no results");
+        return Ok(());
+    }
+
+    for hit in &response.hits {
+        println!(
+            "{:<32} {:<9} {:.2}  {}",
+            hit.citation, hit.source, hit.score, hit.snippet
+        );
+    }
+    Ok(())
+}
+
+async fn memory(client: &Client, project: Option<String>, json: bool) -> Result<()> {
+    let project = project_or_cwd(project)?;
+    let stats = client.memory_stats(&project).await?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&stats)?);
+        return Ok(());
+    }
+
+    println!("project  {}", stats.project);
+    println!(
+        "files    {} · {} symbols · {} edges",
+        stats.files, stats.symbols, stats.edges
+    );
+    println!(
+        "chunks   {} · {} embedded ({})",
+        stats.chunks,
+        stats.embedded_chunks,
+        if stats.semantic_enabled {
+            "semantic search on"
+        } else {
+            "semantic search off"
+        }
+    );
+    if let Some(last) = &stats.last_indexed_at {
+        println!("indexed  {last}");
+    } else {
+        println!("indexed  never (run `jcs index`)");
     }
     Ok(())
 }

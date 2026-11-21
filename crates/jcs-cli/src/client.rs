@@ -84,6 +84,37 @@ impl Client {
         self.get(&format!("/runs/{id}")).await
     }
 
+    pub async fn memory_index(
+        &self,
+        project: &str,
+        force: bool,
+    ) -> Result<jcs_proto::MemoryIndexResponse> {
+        let request = jcs_proto::MemoryIndexRequest {
+            project: project.to_string(),
+            force,
+        };
+        self.post("/memory/index", &request).await
+    }
+
+    pub async fn memory_search(
+        &self,
+        project: &str,
+        query: &str,
+        limit: usize,
+    ) -> Result<jcs_proto::MemorySearchResponse> {
+        self.get(&format!(
+            "/memory/search?project={}&q={}&limit={limit}",
+            encode(project),
+            encode(query)
+        ))
+        .await
+    }
+
+    pub async fn memory_stats(&self, project: &str) -> Result<jcs_proto::MemoryStatsView> {
+        self.get(&format!("/memory/stats?project={}", encode(project)))
+            .await
+    }
+
     pub async fn goal_detail(&self, id: &str) -> Result<jcs_proto::GoalDetailResponse> {
         self.get(&format!("/goals/{id}")).await
     }
