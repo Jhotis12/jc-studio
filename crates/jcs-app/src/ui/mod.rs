@@ -548,11 +548,11 @@ pub fn model_selector(
     ui.add(
         egui::TextEdit::singleline(value)
             .hint_text("provider/modelo")
-            .desired_width(230.0),
+            .desired_width(190.0),
     );
     egui::ComboBox::from_id_salt(id)
         .selected_text("elegir")
-        .width(320.0)
+        .width(240.0)
         .show_ui(ui, |ui| {
             ui.selectable_value(value, String::new(), "sin modelo (lo decide el backend)");
             for model in models {

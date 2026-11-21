@@ -25,7 +25,8 @@ fn settings_window(context: &egui::Context, app: &mut Studio) {
         .open(&mut open)
         .collapsible(false)
         .resizable(true)
-        .default_width(560.0)
+        .default_width(760.0)
+        .min_width(620.0)
         .show(context, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 project_settings(ui, app);
