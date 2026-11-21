@@ -66,6 +66,8 @@ Un commit no debe mezclar refactor y cambio de comportamiento: eso hace el rever
   dependencias, todas terminan y todos los entregables existen.
 - **Integración**: `just e2e-merge` — DAG + rama de integración + promoción a la base, sin
   ramas `jcs/*` al final.
+- **Memoria**: `just e2e-memory` — indexa un repo real, busca con cita, comprueba la
+  incrementalidad y verifica que el contexto citado llega al prompt de una tarea.
 - **Durabilidad**: `just chaos` — `kill -9` a mitad de run, reinicio, y verificación de
   `interrupted` + `blocked`, cero commits parciales y un run posterior correcto.
 

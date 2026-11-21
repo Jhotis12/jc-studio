@@ -55,6 +55,10 @@ e2e-plan:
 e2e-merge:
     ./scripts/e2e-merge.sh
 
+# Code memory: index, search, incremental updates and cited context
+e2e-memory:
+    ./scripts/e2e-memory.sh
+
 # Kill the daemon mid-run and verify honest recovery
 chaos:
     ./scripts/chaos.sh
