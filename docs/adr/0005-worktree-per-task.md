@@ -21,8 +21,10 @@ la rama principal.
 
 ## Decisión
 
-- **Un worktree por tarea**, en `<root>/.jcs/worktrees/<task-id>` (ignorado por git), rama
-  `jcs/<goal-slug>/<task-slug>`, creada desde la rama base del proyecto.
+- **Un worktree por tarea**, en `$XDG_DATA_HOME/jcs/worktrees/<project-id>/<task-id>`,
+  rama `jcs/<goal-slug>/<task-slug>`, creada desde la rama base del proyecto.
+  Vive **fuera del repositorio** a propósito: un worktree anidado aparece como directorio
+  sin trackear y ensucia el árbol principal de un proyecto del usuario (verificado en test).
 - El agente de esa tarea se crea con `location.directory` apuntando a ese worktree: no puede
   tocar la copia principal.
 - Al terminar: gates → commit convencional → **merge queue** (rebase sobre base + gates +
@@ -47,11 +49,6 @@ agente. `jcs-git` encapsula la invocación para que cambiar a `gix` sea un cambi
 
 **Negativas / costes**
 - Disco: cada worktree materializa los archivos (no los objetos).
-- Un worktree huérfano ocupa espacio y bloquea su rama hasta `git worktree prune`.
-- Los tests que asumen rutas absolutas del repo principal fallan en worktrees; hay que
-  documentarlo para los packs.
-- Invocar `git` exige distinguir "no es un repo" de "git falló" en el parseo de errores.
-
 **Reglas duras**
 - Prohibido `git push --force`, `git reset --hard` sobre la rama base, y `git clean -fd`
   fuera de un worktree de tarea.
