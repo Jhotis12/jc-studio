@@ -160,6 +160,64 @@ fn force_replaces_a_hand_written_agents_md_but_keeps_a_backup() {
 }
 
 #[test]
+fn project_instructions_are_rendered_after_the_packs() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(directory.path().join(".jcs")).unwrap();
+    std::fs::write(
+        directory.path().join(".jcs/house-rules.md"),
+        "# House rules\n\nAlways greet the reviewer.\n",
+    )
+    .unwrap();
+
+    project::write(
+        directory.path(),
+        &ProjectPolicy {
+            packs: vec!["core-git".into()],
+            instructions: vec![".jcs/house-rules.md".into()],
+            ..ProjectPolicy::default()
+        },
+    )
+    .unwrap();
+
+    let compiled = compile(directory.path(), &packs(), &defaults()).unwrap();
+    let agents = &compiled
+        .rendered
+        .files
+        .iter()
+        .find(|file| file.path == AGENTS_PATH)
+        .unwrap()
+        .content;
+
+    assert!(agents.contains("## Project instructions (.jcs/house-rules.md)"));
+    assert!(agents.contains("Always greet the reviewer."));
+    // Pack content comes first: the project's own rules are the last word.
+    let pack_at = agents.find("## core-git 1.0.0").unwrap();
+    let project_at = agents.find("## Project instructions").unwrap();
+    assert!(pack_at < project_at);
+}
+
+#[test]
+fn project_instruction_paths_cannot_escape_the_root() {
+    let directory = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let secret = outside.path().join("secret.md");
+    std::fs::write(&secret, "should not be read").unwrap();
+
+    project::write(
+        directory.path(),
+        &ProjectPolicy {
+            packs: vec!["core-git".into()],
+            instructions: vec![secret.to_string_lossy().to_string()],
+            ..ProjectPolicy::default()
+        },
+    )
+    .unwrap();
+
+    let error = compile(directory.path(), &packs(), &defaults()).unwrap_err();
+    assert!(error.to_string().contains("escapes"), "{error}");
+}
+
+#[test]
 fn compilation_is_deterministic_across_runs() {
     let directory = tempfile::tempdir().unwrap();
     let first = compile(directory.path(), &packs(), &defaults()).unwrap();

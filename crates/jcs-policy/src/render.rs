@@ -155,10 +155,14 @@ fn render_agents(composition: &Composition, policy_source: &str) -> String {
     }
 
     for doc in &composition.instructions {
-        out.push_str(&format!(
-            "## {} {} ({})\n\n",
-            doc.pack_id, doc.pack_version, doc.path
-        ));
+        if doc.pack_version.is_empty() {
+            out.push_str(&format!("## Project instructions ({})\n\n", doc.path));
+        } else {
+            out.push_str(&format!(
+                "## {} {} ({})\n\n",
+                doc.pack_id, doc.pack_version, doc.path
+            ));
+        }
         out.push_str(doc.content.trim_end());
         out.push_str("\n\n");
     }

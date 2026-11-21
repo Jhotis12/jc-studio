@@ -27,6 +27,13 @@ pub struct ProjectPolicy {
     pub disabled_gates: Vec<String>,
     #[serde(default)]
     pub disabled_packs: Vec<String>,
+    /// Extra Markdown documents, relative to the project root, rendered after the packs.
+    ///
+    /// This is the migration path for a project that already has hand-written
+    /// instructions: move them into a file, list it here, and the generated `AGENTS.md`
+    /// keeps them instead of replacing them.
+    #[serde(default)]
+    pub instructions: Vec<String>,
 }
 
 /// Reads the project policy, if the file exists.

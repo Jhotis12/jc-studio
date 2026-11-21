@@ -58,7 +58,32 @@ pub fn compile(
         disabled_gates: policy.disabled_gates.clone(),
     };
 
-    let composition = compose(&resolved, &overrides);
+    let mut composition = compose(&resolved, &overrides);
+
+    if !policy.instructions.is_empty() {
+        let root = project_root.canonicalize()?;
+        for relative in &policy.instructions {
+            let candidate = project_root.join(relative);
+            let resolved = candidate
+                .canonicalize()
+                .map_err(|error| PolicyError::InvalidPack {
+                    id: project::POLICY_FILE.to_string(),
+                    reason: format!("cannot read instruction file {relative:?}: {error}"),
+                })?;
+            if !resolved.starts_with(&root) {
+                return Err(PolicyError::PathEscape {
+                    path: resolved.display().to_string(),
+                });
+            }
+            composition.instructions.push(crate::model::ComposedDoc {
+                pack_id: "project".to_string(),
+                pack_version: String::new(),
+                path: relative.clone(),
+                content: std::fs::read_to_string(&resolved)?,
+            });
+        }
+    }
+
     let rendered = render::render(&composition, project::POLICY_FILE)?;
 
     Ok(Compiled {
