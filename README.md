@@ -34,6 +34,7 @@ todo está verde. La TUI (`jcs tui`) muestra el tablero y el stream en vivo.
 Lo que **no** hay todavía (fases 4–7): grafo de código/RAG, revisor adversarial, Telegram,
 hardening de 72 h y empaquetado.
 
+Avance por fase y evidencia: [`docs/STATUS.md`](docs/STATUS.md).
 Riesgos aceptados y decisiones diferidas: [`docs/PENDING.md`](docs/PENDING.md).
 
 ## Cómo termina un run
