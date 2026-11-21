@@ -5,6 +5,9 @@ si discrepan, gana el código.
 
 Última actualización: 2026-11-21.
 
+Si llegas aquí después de una compactación de contexto, el punto de entrada es
+[`HANDOFF.md`](HANDOFF.md): estado, invariantes, mapa del código y siguiente trabajo.
+
 ## Avance
 
 | Fase | Estimación (días) | Estado | Peso |

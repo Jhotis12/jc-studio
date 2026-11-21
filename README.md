@@ -39,6 +39,7 @@ Lo que **no** hay todavía (fases 5–7): revisor adversarial, Telegram, hardeni
 empaquetado.
 
 Avance por fase y evidencia: [`docs/STATUS.md`](docs/STATUS.md).
+Si retomas el proyecto sin contexto previo: [`docs/HANDOFF.md`](docs/HANDOFF.md).
 Riesgos aceptados y decisiones diferidas: [`docs/PENDING.md`](docs/PENDING.md).
 
 ## Cómo termina un run
