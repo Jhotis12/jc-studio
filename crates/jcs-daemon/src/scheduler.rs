@@ -59,11 +59,6 @@ async fn tick(state: &AppState, owner: &str) -> Result<()> {
             continue;
         };
 
-        if let Some(reason) = budget_block(state, &project).await? {
-            block_goal(state, &goal, &reason).await?;
-            continue;
-        }
-
         let counts = state.store.goal_task_counts(&goal.id).await?;
 
         // Planning in flight: nothing to schedule yet.
@@ -78,6 +73,8 @@ async fn tick(state: &AppState, owner: &str) -> Result<()> {
                 .await?;
         }
 
+        // A finished goal is finalized regardless of budget: the ceiling gates new work,
+        // it does not retroactively block work that already completed.
         if counts.settled() {
             finalize_goal(state, &goal, &project, counts).await?;
             continue;
@@ -88,6 +85,11 @@ async fn tick(state: &AppState, owner: &str) -> Result<()> {
         merge::ensure_integration_branch(state, &goal, &project, counts.total).await?;
 
         if counts.in_flight() > 0 {
+            continue;
+        }
+
+        if let Some(reason) = budget_block(state, &project).await? {
+            block_goal(state, &goal, &reason).await?;
             continue;
         }
 
@@ -233,11 +235,6 @@ async fn finalize_goal(
 }
 
 async fn dispatch(state: &AppState, owner: &str, goal: &Goal, project: &Project) -> Result<()> {
-    let available = state.permits.available_permits();
-    if available == 0 {
-        return Ok(());
-    }
-
     let ready = state.store.ready_tasks(&goal.id).await?;
     if ready.is_empty() {
         return Ok(());
@@ -259,13 +256,8 @@ async fn dispatch(state: &AppState, owner: &str, goal: &Goal, project: &Project)
         .collect();
 
     let ttl = Duration::from_secs(state.config.lease_ttl_secs);
-    let mut dispatched = 0usize;
 
     for task in ready {
-        if dispatched >= available {
-            break;
-        }
-
         if claims_conflict(&task.path_claims, &claimed) {
             tracing::debug!(
                 task = %task.id,
@@ -275,12 +267,20 @@ async fn dispatch(state: &AppState, owner: &str, goal: &Goal, project: &Project)
             continue;
         }
 
+        // Capacity before ownership: holding a lease while waiting for a permit would
+        // leave the task "dispatching" forever from the budget's point of view.
+        let permit = match state.permits.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => break,
+        };
+
         let resource = lease_resource(&task);
         if !state
             .store
             .acquire_lease(&resource, &task.id, owner, ttl)
             .await?
         {
+            drop(permit);
             continue;
         }
 
@@ -300,10 +300,10 @@ async fn dispatch(state: &AppState, owner: &str, goal: &Goal, project: &Project)
                 permissions,
                 lease_owner: owner.to_string(),
             },
+            permit,
         );
 
         claimed.push(task.path_claims.clone());
-        dispatched += 1;
     }
 
     Ok(())

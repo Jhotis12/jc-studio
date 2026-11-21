@@ -59,6 +59,10 @@ e2e-merge:
 e2e-memory:
     ./scripts/e2e-memory.sh
 
+# Budget stop, audit, resume and leak checks
+soak:
+    ./scripts/soak.sh
+
 # Kill the daemon mid-run and verify honest recovery
 chaos:
     ./scripts/chaos.sh

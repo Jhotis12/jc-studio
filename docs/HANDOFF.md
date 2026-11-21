@@ -87,8 +87,10 @@ decisiones existen precisamente porque un enfoque obvio falló.
 ## Siguiente trabajo
 
 **Fase 5 completada** (gates, fitness functions, secretos, revisor, riesgo). **Fase 6
-operativa** (Telegram). **Fase 7 parcial** (métricas, systemd, doctor). Lo que queda:
-soak de 72 h, empaquetado `cargo dist`, runbook y el `/metrics` por proyecto.
+operativa** (Telegram). **Fase 7 parcial**: métricas, systemd, doctor, `contrib/install.sh`,
+`docs/RUNBOOK.md` y `scripts/soak.sh`. Lo que queda: una ejecución verde del soak
+(el backend de modelos gratuitos estaba caído: runs con 0 tokens), `cargo dist` y
+`/metrics` por proyecto.
 
 El detalle histórico de las fases 5.x se conserva debajo.
 

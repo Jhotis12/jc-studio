@@ -40,6 +40,7 @@ bloqueados desde el móvil. Falta el hardening de la Fase 7 (métricas, soak, em
 
 Avance por fase y evidencia: [`docs/STATUS.md`](docs/STATUS.md).
 Si retomas el proyecto sin contexto previo: [`docs/HANDOFF.md`](docs/HANDOFF.md).
+Operación y recuperación: [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 Riesgos aceptados y decisiones diferidas: [`docs/PENDING.md`](docs/PENDING.md).
 
 ## Cómo termina un run
@@ -263,6 +264,7 @@ just e2e-plan   # descomposición en DAG y ejecución de tareas
 just e2e-merge  # DAG + integración + promoción a la rama base
 just e2e-memory # índice, búsqueda con cita y contexto inyectado
 just chaos      # kill -9 a mitad de run y recuperación
+just soak       # techo de presupuesto, auditoría, reanudación y fugas
 just audit      # licencias y avisos de dependencias
 ```
 

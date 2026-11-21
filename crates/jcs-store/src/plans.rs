@@ -241,7 +241,7 @@ impl Store {
     pub async fn active_goals(&self) -> Result<Vec<jcs_core::Goal>> {
         let rows: Vec<crate::goals::GoalRow> = sqlx::query_as(
             "SELECT id, project_id, prompt, status, created_at, updated_at \
-             FROM goals WHERE status IN ('pending', 'running') ORDER BY created_at",
+             FROM goals WHERE status IN ('pending', 'running') ORDER BY created_at, rowid",
         )
         .fetch_all(self.pool())
         .await?;

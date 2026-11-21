@@ -46,17 +46,14 @@ pub struct TaskDispatch {
     pub lease_owner: String,
 }
 
-/// Starts a task in the background, bounded by the concurrency semaphore.
-pub fn spawn(state: AppState, dispatch: TaskDispatch) {
+/// Starts a task in the background.
+///
+/// The caller passes the concurrency permit it already acquired. Acquiring it here would
+/// let the scheduler dispatch more tasks than the machine can run, leaving "started" tasks
+/// that are actually queued — and invisible to the budget and in-flight checks.
+pub fn spawn(state: AppState, dispatch: TaskDispatch, permit: tokio::sync::OwnedSemaphorePermit) {
     tokio::spawn(async move {
-        let permit = match state.permits.clone().acquire_owned().await {
-            Ok(permit) => permit,
-            Err(_) => {
-                tracing::error!("executor semaphore closed; task not started");
-                return;
-            }
-        };
-
+        let _permit = permit;
         let guard = LeaseGuard::start(&state, &dispatch);
 
         match run_task(&state, &dispatch, &guard).await {
@@ -83,8 +80,6 @@ pub fn spawn(state: AppState, dispatch: TaskDispatch) {
                 }
             }
         }
-
-        drop(permit);
     });
 }
 
