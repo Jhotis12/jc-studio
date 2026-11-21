@@ -82,6 +82,29 @@ lo que esté corriendo (conservador). Si dos objetivos tocan lo mismo, el segund
 al promocionar, se rebasa y se re-verifica; un conflicto bloquea el objetivo, no lo falla.
 
 Para subir la concurrencia: **Ajustes → Concurrencia máxima → Guardar → Reiniciar jcsd**.
+
+### Gestionar objetivos
+
+En el detalle de un objetivo, «Gestionar objetivo» permite:
+
+- **Cancelar**: interrumpe los runs, marca las tareas y el objetivo como `cancelled`.
+  Conserva todo el historial.
+- **Eliminar**: borra el objetivo, sus tareas, runs y leases. Se niega si hay tareas en
+  ejecución; cancela primero y espera. El event log conserva `goal_deleted` como auditoría.
+- **Reintentar como objetivo nuevo**: crea otro objetivo con el mismo texto para fallidos,
+  bloqueados o cancelados.
+
+### Chat, skills y MCP
+
+La pestaña **Chat** muestra, por tarea, el objetivo, la tarea, la respuesta del agente, su
+pensamiento (colapsable), las herramientas y los gates. Es de lectura; para intervenir usa
+el terminal del worktree.
+
+**Skills/MCP** lista lo que OpenCode tiene registrado. Marca las skills que quieras activar
+en las próximas sesiones de tarea; se aplican al crear cada sesión. Los MCP se pueden
+conectar, desconectar, añadir en caliente y quitar. Un MCP añadido así vive hasta que
+OpenCode se reinicie; para persistirlo, añádelo a la configuración de OpenCode. Un MCP local
+ejecuta un comando: instálalo solo si confías en él.
 Reiniciar interrumpe las ejecuciones en curso (quedan `interrupted` y sus tareas
 `blocked`); el trabajo ya confirmado no se pierde.
 
@@ -89,8 +112,9 @@ Reiniciar interrumpe las ejecuciones en curso (quedan `interrupted` y sus tareas
 
 **Código** abre el repositorio o el worktree de la tarea seleccionada. El editor guarda con
 `Ctrl+S`, protege los cambios sin guardar al cambiar de archivo y muestra el diff del
-worktree contra la rama base. La primera pasada no tiene resaltado de sintaxis ni commit
-desde la UI; para eso está el terminal.
+worktree contra la rama base. En la raíz del proyecto puedes hacer **commit manual** con un
+mensaje; en un worktree de tarea el commit lo hace el orquestador después de los gates. La
+primera pasada no tiene resaltado de sintaxis ni push; para eso está el terminal.
 
 Las terminales viven en el proceso de la app: cerrar la ventana las termina. Mover el PTY
 al daemon está pendiente y se documenta como tal; no cierres la ventana en mitad de un

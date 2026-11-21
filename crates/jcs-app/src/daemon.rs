@@ -37,6 +37,12 @@ pub enum Command {
     Resume {
         goal: String,
     },
+    CancelGoal {
+        goal: String,
+    },
+    DeleteGoal {
+        goal: String,
+    },
     Abort {
         run: String,
     },
@@ -80,6 +86,29 @@ pub enum Command {
     TaskEvents {
         task: String,
     },
+    LoadSkills {
+        project: String,
+    },
+    LoadMcp {
+        project: String,
+    },
+    ConnectMcp {
+        project: String,
+        server: String,
+    },
+    DisconnectMcp {
+        project: String,
+        server: String,
+    },
+    AddMcp {
+        project: String,
+        server: String,
+        config: serde_json::Value,
+    },
+    RemoveMcp {
+        project: String,
+        server: String,
+    },
 }
 
 /// Facts the daemon reports back to the interface.
@@ -99,7 +128,10 @@ pub enum Update {
     MemorySearch(MemorySearchResponse),
     RunDetail(Box<RunDetailResponse>),
     TaskHistory(Vec<Event>),
+    Skills(Vec<jcs_proto::SkillCatalogEntry>),
+    Mcp(Vec<jcs_proto::McpServerEntry>),
     GoalAction(GoalActionResponse),
+    GoalDeleted(String),
     Project(ProjectView),
     Settings(jcs_proto::SettingsView),
     Models(Vec<jcs_proto::ModelCatalogEntry>),
@@ -307,6 +339,24 @@ async fn handle(client: &Client, updates: &Sender<Update>, command: Command) {
             }
             Err(error) => notice(updates, error, "no se pudo reanudar el objetivo"),
         },
+        Command::CancelGoal { goal } => match client.cancel_goal(&goal).await {
+            Ok(response) => {
+                let _ = updates.send(Update::GoalAction(response));
+                refresh(client, updates).await;
+            }
+            Err(error) => notice(updates, error, "no se pudo cancelar el objetivo"),
+        },
+        Command::DeleteGoal { goal } => match client.delete_goal(&goal).await {
+            Ok(_) => {
+                let _ = updates.send(Update::GoalDeleted(goal));
+                let _ = updates.send(Update::Notice {
+                    message: "objetivo eliminado; su historial queda en el event log".to_string(),
+                    error: false,
+                });
+                refresh(client, updates).await;
+            }
+            Err(error) => notice(updates, error, "no se pudo eliminar el objetivo"),
+        },
         Command::Abort { run } => match client.abort(&run).await {
             Ok(_) => {
                 let _ = updates.send(Update::Notice {
@@ -430,6 +480,83 @@ async fn handle(client: &Client, updates: &Sender<Update>, command: Command) {
                     Err(error) => notice(&updates, error, "no se pudo buscar en la memoria"),
                 }
             });
+        }
+        Command::LoadSkills { project } => match client.skills(&project).await {
+            Ok(skills) => {
+                let _ = updates.send(Update::Skills(skills));
+            }
+            Err(error) => notice(updates, error, "no se pudieron leer las skills"),
+        },
+        Command::LoadMcp { project } => match client.mcp_servers(&project).await {
+            Ok(servers) => {
+                let _ = updates.send(Update::Mcp(servers));
+            }
+            Err(error) => notice(updates, error, "no se pudieron leer los servidores MCP"),
+        },
+        Command::ConnectMcp { project, server } => {
+            match client.mcp_connect(&project, &server).await {
+                Ok(_) => {
+                    let _ = updates.send(Update::Notice {
+                        message: format!("MCP {server} conectado"),
+                        error: false,
+                    });
+                    if let Ok(servers) = client.mcp_servers(&project).await {
+                        let _ = updates.send(Update::Mcp(servers));
+                    }
+                }
+                Err(error) => notice(updates, error, "no se pudo conectar el MCP"),
+            }
+        }
+        Command::DisconnectMcp { project, server } => {
+            match client.mcp_disconnect(&project, &server).await {
+                Ok(_) => {
+                    let _ = updates.send(Update::Notice {
+                        message: format!("MCP {server} desconectado"),
+                        error: false,
+                    });
+                    if let Ok(servers) = client.mcp_servers(&project).await {
+                        let _ = updates.send(Update::Mcp(servers));
+                    }
+                }
+                Err(error) => notice(updates, error, "no se pudo desconectar el MCP"),
+            }
+        }
+        Command::AddMcp {
+            project,
+            server,
+            config,
+        } => {
+            let request = jcs_proto::McpAddRequest {
+                project: project.clone(),
+                server: server.clone(),
+                config,
+            };
+            match client.mcp_add(&request).await {
+                Ok(_) => {
+                    let _ = updates.send(Update::Notice {
+                        message: format!("MCP {server} añadido en caliente"),
+                        error: false,
+                    });
+                    if let Ok(servers) = client.mcp_servers(&project).await {
+                        let _ = updates.send(Update::Mcp(servers));
+                    }
+                }
+                Err(error) => notice(updates, error, "no se pudo añadir el MCP"),
+            }
+        }
+        Command::RemoveMcp { project, server } => {
+            match client.mcp_remove(&project, &server).await {
+                Ok(_) => {
+                    let _ = updates.send(Update::Notice {
+                        message: format!("MCP {server} eliminado"),
+                        error: false,
+                    });
+                    if let Ok(servers) = client.mcp_servers(&project).await {
+                        let _ = updates.send(Update::Mcp(servers));
+                    }
+                }
+                Err(error) => notice(updates, error, "no se pudo eliminar el MCP"),
+            }
         }
         Command::TaskEvents { task } => match client.task_events(&task, 500).await {
             Ok(events) => {

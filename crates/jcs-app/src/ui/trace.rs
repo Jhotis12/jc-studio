@@ -1,7 +1,6 @@
-//! Live agent trace for one task: reasoning, answer, tool calls and system milestones.
-//!
-//! The event log is the source of truth. When a task is selected after it started, the
-//! application requests its bounded history; afterwards the global stream keeps it current.
+//! Chat view for one agent: the objective, the task, the answer, the reasoning and the
+//! tools. The event log is the source; chunks are coalesced so a streamed answer reads as
+//! one message instead of one bubble per 200 ms.
 
 use egui::{Color32, RichText};
 
@@ -10,29 +9,41 @@ use crate::daemon::Command;
 use crate::state::{task_progress, ActivityLine};
 use crate::ui::{badge, status_color, truncate};
 
+enum Item {
+    Text(String),
+    Reasoning(String),
+    Tool { failed: bool, detail: String },
+    System(ActivityLine),
+}
+
 pub fn panel(ui: &mut egui::Ui, app: &mut Studio) {
     let Some(task) = app.state.selected_task().cloned() else {
         ui.add_space(8.0);
         ui.label(
             RichText::new(
-                "Selecciona una tarea en el detalle o en el grafo del plan para ver qué está \
-                 haciendo el agente: razonamiento, respuesta, herramientas y gates.",
+                "Selecciona una tarea en el detalle o en el grafo del plan para abrir su chat: \
+                 objetivo, razonamiento, respuesta del agente, herramientas y gates.",
             )
             .weak(),
         );
         return;
     };
 
+    let goal_prompt = app
+        .state
+        .selected_goal()
+        .map(|goal| goal.prompt.clone())
+        .unwrap_or_default();
     let progress = task_progress(&task);
     let tokens = app.state.task_tokens(&task.id);
     let elapsed = app.state.task_elapsed_secs(&task);
 
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(&task.title).strong());
+        ui.label(RichText::new("Chat").strong());
         badge(ui, &task.status);
         ui.add(
             egui::ProgressBar::new(progress.fraction)
-                .desired_width(110.0)
+                .desired_width(100.0)
                 .desired_height(6.0)
                 .fill(status_color(&task.status))
                 .text(""),
@@ -69,107 +80,163 @@ pub fn panel(ui: &mut egui::Ui, app: &mut Studio) {
         .filter(|line| line.task_id.as_deref() == Some(task.id.as_str()))
         .cloned()
         .collect();
+    let items = coalesce(lines);
 
-    if lines.is_empty() {
-        ui.add_space(8.0);
-        ui.label(
-            RichText::new(if task.status == "pending" {
-                "En cola: todavía no hay actividad del agente para esta tarea."
-            } else {
-                "Sin actividad registrada todavía. El stream se actualiza en vivo."
-            })
-            .weak(),
-        );
-        return;
-    }
-
-    // A finished task is read from the beginning; a live one should follow the tail.
-    let live = matches!(task.status.as_str(), "running" | "verifying");
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
-        .stick_to_bottom(live)
+        .stick_to_bottom(matches!(task.status.as_str(), "running" | "verifying"))
         .show(ui, |ui| {
-            for line in &lines {
-                trace_line(ui, line);
+            user_message(ui, "Objetivo", &goal_prompt);
+            user_message(ui, "Tarea", &task.title);
+
+            if items.is_empty() {
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new(if task.status == "pending" {
+                        "En cola: el agente todavía no ha empezado esta tarea."
+                    } else {
+                        "Sin actividad registrada todavía; el chat se actualiza en vivo."
+                    })
+                    .weak(),
+                );
+            }
+
+            for item in &items {
+                match item {
+                    Item::Text(text) => assistant_message(ui, text),
+                    Item::Reasoning(text) => reasoning(ui, text),
+                    Item::Tool { failed, detail } => tool(ui, *failed, detail),
+                    Item::System(line) => system_line(ui, line),
+                }
             }
         });
 }
 
-fn trace_line(ui: &mut egui::Ui, line: &ActivityLine) {
-    match line.kind.as_str() {
-        "agent_reasoning" => {
-            block(
-                ui,
-                Color32::from_rgb(120, 130, 155),
-                "pensando",
-                &line.detail,
-                true,
-            );
-        }
-        "agent_text" => {
-            block(
-                ui,
-                Color32::from_rgb(190, 205, 230),
-                "agente",
-                &line.detail,
-                false,
-            );
-        }
-        "agent_tool_called" | "agent_tool_finished" => {
-            let color = if line.kind == "agent_tool_finished" {
-                Color32::from_rgb(120, 200, 130)
-            } else {
-                Color32::from_rgb(105, 165, 235)
-            };
-            block(ui, color, &line.kind_label(), &line.detail, false);
-        }
-        _ => {
-            let color = status_color(match line.kind.as_str() {
-                "error" => "failed",
-                "run_finished" | "commit_created" | "merge_finished" => "succeeded",
-                _ => "running",
-            });
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(&line.time).monospace().weak().small());
-                ui.label(RichText::new(&line.kind).monospace().small().color(color));
-                if !line.detail.is_empty() {
-                    ui.label(
-                        RichText::new(truncate(&line.detail, 240))
-                            .monospace()
-                            .small()
-                            .weak(),
-                    );
-                }
-            });
+/// Concatenates adjacent streamed chunks of the same kind.
+fn coalesce(lines: Vec<ActivityLine>) -> Vec<Item> {
+    let mut items: Vec<Item> = Vec::new();
+    for line in lines {
+        match line.kind.as_str() {
+            "agent_text" => match items.last_mut() {
+                Some(Item::Text(text)) => text.push_str(&line.detail),
+                _ => items.push(Item::Text(line.detail)),
+            },
+            "agent_reasoning" => match items.last_mut() {
+                Some(Item::Reasoning(text)) => text.push_str(&line.detail),
+                _ => items.push(Item::Reasoning(line.detail)),
+            },
+            "agent_tool_called" => items.push(Item::Tool {
+                failed: false,
+                detail: line.detail,
+            }),
+            "agent_tool_finished" => items.push(Item::Tool {
+                failed: true,
+                detail: line.detail,
+            }),
+            _ => items.push(Item::System(line)),
         }
     }
+    items
 }
 
-fn block(ui: &mut egui::Ui, color: Color32, label: &str, text: &str, italic: bool) {
+fn user_message(ui: &mut egui::Ui, label: &str, text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+    ui.add_space(4.0);
+    egui::Frame::new()
+        .fill(Color32::from_rgb(48, 84, 130).gamma_multiply(0.28))
+        .inner_margin(egui::Margin::symmetric(8, 6))
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new(label)
+                    .small()
+                    .strong()
+                    .color(Color32::from_rgb(140, 190, 245)),
+            );
+            ui.label(RichText::new(text).size(13.5));
+        });
+    ui.add_space(3.0);
+}
+
+fn assistant_message(ui: &mut egui::Ui, text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+    egui::Frame::new()
+        .fill(Color32::from_rgb(26, 30, 38))
+        .inner_margin(egui::Margin::symmetric(8, 6))
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new("Agente")
+                    .small()
+                    .strong()
+                    .color(Color32::from_rgb(150, 180, 230)),
+            );
+            ui.label(RichText::new(text.trim()).monospace().size(12.5));
+        });
+    ui.add_space(3.0);
+}
+
+fn reasoning(ui: &mut egui::Ui, text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+    egui::CollapsingHeader::new(
+        RichText::new("Pensamiento")
+            .small()
+            .color(Color32::from_rgb(130, 140, 165)),
+    )
+    .default_open(false)
+    .show(ui, |ui| {
+        ui.label(
+            RichText::new(truncate(text.trim(), 8_000))
+                .italics()
+                .size(12.0)
+                .color(Color32::from_rgb(130, 140, 165)),
+        );
+    });
+}
+
+fn tool(ui: &mut egui::Ui, failed: bool, detail: &str) {
+    let color = if failed {
+        Color32::from_rgb(225, 110, 110)
+    } else {
+        Color32::from_rgb(105, 165, 235)
+    };
+    let icon = if failed { "✗" } else { "→" };
     egui::Frame::new()
         .fill(color.gamma_multiply(0.08))
-        .inner_margin(egui::Margin::symmetric(6, 4))
+        .inner_margin(egui::Margin::symmetric(6, 3))
         .show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(label).small().strong().color(color));
-            });
-            let mut rich = RichText::new(text.trim()).monospace().size(12.5);
-            if italic {
-                rich = rich.italics();
-            }
-            ui.label(rich.color(color));
+            ui.label(
+                RichText::new(format!("{icon} {detail}"))
+                    .monospace()
+                    .size(11.5)
+                    .color(color),
+            );
         });
     ui.add_space(2.0);
 }
 
-impl ActivityLine {
-    fn kind_label(&self) -> String {
-        if self.kind == "agent_tool_finished" {
-            "resultado".to_string()
-        } else {
-            "herramienta".to_string()
+fn system_line(ui: &mut egui::Ui, line: &ActivityLine) {
+    let color = status_color(match line.kind.as_str() {
+        "error" => "failed",
+        "run_finished" | "commit_created" | "merge_finished" => "succeeded",
+        _ => "running",
+    });
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new(&line.time).monospace().weak().small());
+        ui.label(RichText::new(&line.kind).monospace().small().color(color));
+        if !line.detail.is_empty() {
+            ui.label(
+                RichText::new(truncate(&line.detail, 240))
+                    .monospace()
+                    .small()
+                    .weak(),
+            );
         }
-    }
+    });
 }
 
 fn duration(seconds: i64) -> String {

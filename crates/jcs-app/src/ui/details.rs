@@ -181,6 +181,82 @@ pub fn goal(ui: &mut egui::Ui, app: &mut Studio) {
                 task_card(ui, app, task);
                 ui.add_space(4.0);
             }
+
+            ui.add_space(12.0);
+            ui.separator();
+            egui::CollapsingHeader::new("Gestionar objetivo")
+                .default_open(false)
+                .show(ui, |ui| {
+                    let active = matches!(goal.status.as_str(), "pending" | "running" | "blocked");
+                    if active {
+                        if ui
+                            .button("Cancelar objetivo")
+                            .on_hover_text(
+                                "Detiene las ejecuciones y marca las tareas como canceladas. \
+                                 Conserva el objetivo y su historial.",
+                            )
+                            .clicked()
+                        {
+                            app.daemon.send(Command::CancelGoal {
+                                goal: goal.id.clone(),
+                            });
+                        }
+                        ui.label(
+                            RichText::new(
+                                "Cancelar no borra nada: deja el objetivo y sus tareas en el \
+                                 historial, marcados como cancelados.",
+                            )
+                            .weak()
+                            .small(),
+                        );
+                        ui.add_space(6.0);
+                    }
+
+                    if matches!(goal.status.as_str(), "failed" | "cancelled" | "blocked")
+                        && ui
+                            .button("Reintentar como objetivo nuevo")
+                            .on_hover_text(
+                                "Crea un objetivo nuevo con el mismo texto. No reutiliza las \
+                             tareas fallidas.",
+                            )
+                            .clicked()
+                    {
+                        app.retry_goal(&goal.id);
+                    }
+
+                    let has_running = tasks
+                        .iter()
+                        .any(|task| matches!(task.status.as_str(), "running" | "verifying"));
+                    ui.checkbox(
+                        &mut app.confirm_delete_goal,
+                        "confirmo que quiero eliminar este objetivo",
+                    );
+                    if ui
+                        .add_enabled(
+                            app.confirm_delete_goal && !has_running,
+                            egui::Button::new("Eliminar objetivo"),
+                        )
+                        .on_hover_text(
+                            "Elimina el objetivo, sus tareas y sus runs. Los eventos de \
+                             auditoría se conservan.",
+                        )
+                        .clicked()
+                    {
+                        app.daemon.send(Command::DeleteGoal {
+                            goal: goal.id.clone(),
+                        });
+                    }
+                    if has_running {
+                        ui.label(
+                            RichText::new(
+                                "Hay tareas en ejecución: cancela el objetivo y espera a que \
+                                 se detengan antes de eliminarlo.",
+                            )
+                            .small()
+                            .color(Color32::from_rgb(230, 170, 90)),
+                        );
+                    }
+                });
         });
 }
 
@@ -267,7 +343,7 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
 
         ui.horizontal_wrapped(|ui| {
             if ui
-                .small_button("Actividad del agente")
+                .small_button("Chat del agente")
                 .on_hover_text("Razonamiento, respuesta y herramientas en vivo.")
                 .clicked()
             {

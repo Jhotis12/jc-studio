@@ -43,6 +43,25 @@ pub struct GoalSettings {
 }
 
 impl Store {
+    /// Removes a goal and, by cascade, its tasks, runs and gate results.
+    ///
+    /// Leases have no foreign key (they are a scheduler resource), so they are removed
+    /// explicitly. Events are deliberately kept: they are the audit trail of what happened,
+    /// including the deletion itself.
+    pub async fn delete_goal(&self, id: &GoalId) -> Result<()> {
+        let mut tx = self.pool().begin().await?;
+        sqlx::query("DELETE FROM leases WHERE task_id IN (SELECT id FROM tasks WHERE goal_id = ?)")
+            .bind(id.as_str())
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM goals WHERE id = ?")
+            .bind(id.as_str())
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn create_goal(&self, project_id: &ProjectId, prompt: &str) -> Result<Goal> {
         self.create_goal_with_settings(project_id, prompt, None, None, "auto")
             .await
@@ -203,5 +222,46 @@ impl Store {
         .await?;
 
         rows.into_iter().map(GoalRow::into_domain).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jcs_core::{Project, ProjectId};
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn deleting_a_goal_removes_tasks_runs_and_leases() {
+        let store = Store::in_memory().await.unwrap();
+        let project = Project {
+            id: ProjectId::new(),
+            name: "delete".to_string(),
+            root_path: std::env::temp_dir().join("jcs-delete-goal"),
+            base_branch: "main".to_string(),
+            created_at: jiff::Timestamp::now(),
+            auto_merge: false,
+            budget_usd_per_day: None,
+            budget_tokens_per_day: None,
+        };
+        store.insert_project(&project).await.unwrap();
+        let goal = store
+            .create_goal_with_settings(&project.id, "do it", None, None, "auto")
+            .await
+            .unwrap();
+        let task = store.create_task(&goal.id, "task").await.unwrap();
+        let run = store.start_run(&task.id).await.unwrap();
+        let resource = format!("task:{}", task.id);
+        assert!(store
+            .acquire_lease(&resource, &task.id, "owner", Duration::from_secs(60))
+            .await
+            .unwrap());
+
+        store.delete_goal(&goal.id).await.unwrap();
+
+        assert!(store.get_goal(&goal.id).await.unwrap().is_none());
+        assert!(store.get_task(&task.id).await.unwrap().is_none());
+        assert!(store.get_run(&run.id).await.unwrap().is_none());
+        assert!(store.lease_holder(&resource).await.unwrap().is_none());
     }
 }

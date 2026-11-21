@@ -35,6 +35,25 @@ pub struct ModelInfo {
     pub cost_output: f64,
 }
 
+/// A skill registered in the backend, as listed by `/api/skill`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SkillInfo {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub autoinvoke: bool,
+    pub path: String,
+}
+
+/// An MCP server and its connection state.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct McpServerInfo {
+    pub name: String,
+    pub status: String,
+    pub title: Option<String>,
+    pub error: Option<String>,
+}
+
 impl ModelRef {
     /// Parses `provider/model`, the form used on the command line.
     pub fn parse(reference: &str) -> Result<Self> {
@@ -239,6 +258,167 @@ impl OpenCodeClient {
             )
             .await?;
         Ok(into_list(value))
+    }
+
+    /// Skills registered for a directory.
+    pub async fn skills(&self, directory: &std::path::Path) -> Result<Vec<SkillInfo>> {
+        let value = self
+            .request(
+                reqwest::Method::GET,
+                &format!(
+                    "/api/skill?location%5Bdirectory%5D={}",
+                    encode_query(&directory.to_string_lossy())
+                ),
+                None,
+                Some(REQUEST_TIMEOUT),
+            )
+            .await?;
+        let mut skills = Vec::new();
+        for item in into_list(value) {
+            let id = item.get("id").and_then(Value::as_str).unwrap_or_default();
+            if id.is_empty() {
+                continue;
+            }
+            skills.push(SkillInfo {
+                id: id.to_string(),
+                name: item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or(id)
+                    .to_string(),
+                description: item
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                autoinvoke: item
+                    .get("autoinvoke")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                path: item
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+            });
+        }
+        Ok(skills)
+    }
+
+    /// MCP servers configured for a directory and their status.
+    pub async fn mcp_servers(&self, directory: &std::path::Path) -> Result<Vec<McpServerInfo>> {
+        let value = self
+            .request(
+                reqwest::Method::GET,
+                &format!(
+                    "/api/mcp?location%5Bdirectory%5D={}",
+                    encode_query(&directory.to_string_lossy())
+                ),
+                None,
+                Some(REQUEST_TIMEOUT),
+            )
+            .await?;
+        let mut servers = Vec::new();
+        for item in into_list(value) {
+            let name = item.get("name").and_then(Value::as_str).unwrap_or_default();
+            if name.is_empty() {
+                continue;
+            }
+            let status = item
+                .get("status")
+                .and_then(|status| status.get("status"))
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            let error = item
+                .get("status")
+                .and_then(|status| status.get("error"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            servers.push(McpServerInfo {
+                name: name.to_string(),
+                status: status.to_string(),
+                title: item
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                error,
+            });
+        }
+        servers.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(servers)
+    }
+
+    /// Activates a skill for a session without resuming it; the next prompt sees it.
+    pub async fn activate_skill(&self, session_id: &str, skill_id: &str) -> Result<()> {
+        self.request(
+            reqwest::Method::POST,
+            &format!("/api/experimental/session/{session_id}/skill"),
+            Some(serde_json::json!({ "id": skill_id, "resume": false })),
+            Some(REQUEST_TIMEOUT),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn connect_mcp(&self, server: &str, directory: &std::path::Path) -> Result<()> {
+        self.request(
+            reqwest::Method::POST,
+            &format!(
+                "/api/experimental/mcp/{server}/connect?location%5Bdirectory%5D={}",
+                encode_query(&directory.to_string_lossy())
+            ),
+            None,
+            Some(REQUEST_TIMEOUT),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn disconnect_mcp(&self, server: &str, directory: &std::path::Path) -> Result<()> {
+        self.request(
+            reqwest::Method::POST,
+            &format!(
+                "/api/experimental/mcp/{server}/disconnect?location%5Bdirectory%5D={}",
+                encode_query(&directory.to_string_lossy())
+            ),
+            None,
+            Some(REQUEST_TIMEOUT),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn add_mcp(
+        &self,
+        server: &str,
+        config: Value,
+        directory: &std::path::Path,
+    ) -> Result<()> {
+        self.request(
+            reqwest::Method::PUT,
+            &format!(
+                "/api/experimental/mcp/{server}?location%5Bdirectory%5D={}",
+                encode_query(&directory.to_string_lossy())
+            ),
+            Some(serde_json::json!({ "config": config })),
+            Some(REQUEST_TIMEOUT),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn remove_mcp(&self, server: &str, directory: &std::path::Path) -> Result<()> {
+        self.request(
+            reqwest::Method::DELETE,
+            &format!(
+                "/api/experimental/mcp/{server}?location%5Bdirectory%5D={}",
+                encode_query(&directory.to_string_lossy())
+            ),
+            None,
+            Some(REQUEST_TIMEOUT),
+        )
+        .await?;
+        Ok(())
     }
 
     /// Catalog with prices, used by the desktop selectors.
@@ -583,6 +763,20 @@ fn unwrap_data(value: Value) -> Value {
         }
         other => other,
     }
+}
+
+/// Percent-encodes a query value without pulling in a URL crate.
+fn encode_query(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
 fn into_list(value: Value) -> Vec<Value> {

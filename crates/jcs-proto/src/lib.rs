@@ -415,6 +415,35 @@ pub struct MemoryStatsView {
     pub semantic_enabled: bool,
 }
 
+/// A skill registered in the agent backend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillCatalogEntry {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub autoinvoke: bool,
+    pub path: String,
+}
+
+/// An MCP server and its connection state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerEntry {
+    pub name: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Adds or replaces an MCP server at runtime.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpAddRequest {
+    pub project: String,
+    pub server: String,
+    pub config: serde_json::Value,
+}
+
 /// A model the backend advertises, with its price per million tokens.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelCatalogEntry {
@@ -450,6 +479,9 @@ pub struct SettingsView {
     /// Chats allowed to command the bot. Not secret, but personal; never echoed as a token.
     #[serde(default)]
     pub telegram_chat_ids: Vec<i64>,
+    /// Skills activated on every new task session.
+    #[serde(default)]
+    pub agent_skills: Vec<String>,
     /// Whether a bot token exists. The token itself is never returned.
     #[serde(default)]
     pub telegram_configured: bool,
@@ -488,6 +520,8 @@ pub struct SettingsPatch {
     pub telegram_token: Option<String>,
     #[serde(default)]
     pub telegram_chat_ids: Option<Vec<i64>>,
+    #[serde(default)]
+    pub agent_skills: Option<Vec<String>>,
 }
 
 /// An event as it appears on the client stream.

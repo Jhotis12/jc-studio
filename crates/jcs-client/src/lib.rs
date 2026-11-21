@@ -88,6 +88,54 @@ impl Client {
         self.get("/catalog/models").await
     }
 
+    pub async fn skills(&self, project: &str) -> Result<Vec<jcs_proto::SkillCatalogEntry>> {
+        self.get(&format!("/catalog/skills?project={}", encode(project)))
+            .await
+    }
+
+    pub async fn mcp_servers(&self, project: &str) -> Result<Vec<jcs_proto::McpServerEntry>> {
+        self.get(&format!("/catalog/mcp?project={}", encode(project)))
+            .await
+    }
+
+    pub async fn mcp_connect(&self, project: &str, server: &str) -> Result<jcs_proto::OkResponse> {
+        self.post(
+            &format!("/catalog/mcp/{server}/connect?project={}", encode(project)),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    pub async fn mcp_disconnect(
+        &self,
+        project: &str,
+        server: &str,
+    ) -> Result<jcs_proto::OkResponse> {
+        self.post(
+            &format!(
+                "/catalog/mcp/{server}/disconnect?project={}",
+                encode(project)
+            ),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    pub async fn mcp_add(
+        &self,
+        request: &jcs_proto::McpAddRequest,
+    ) -> Result<jcs_proto::OkResponse> {
+        self.post("/catalog/mcp", request).await
+    }
+
+    pub async fn mcp_remove(&self, project: &str, server: &str) -> Result<jcs_proto::OkResponse> {
+        self.delete(&format!(
+            "/catalog/mcp/{server}?project={}",
+            encode(project)
+        ))
+        .await
+    }
+
     pub async fn settings(&self) -> Result<jcs_proto::SettingsView> {
         self.get("/settings").await
     }
@@ -148,6 +196,15 @@ impl Client {
 
     pub async fn goal_detail(&self, id: &str) -> Result<jcs_proto::GoalDetailResponse> {
         self.get(&format!("/goals/{id}")).await
+    }
+
+    pub async fn cancel_goal(&self, id: &str) -> Result<jcs_proto::GoalActionResponse> {
+        self.post(&format!("/goals/{id}/cancel"), &serde_json::json!({}))
+            .await
+    }
+
+    pub async fn delete_goal(&self, id: &str) -> Result<jcs_proto::OkResponse> {
+        self.delete(&format!("/goals/{id}")).await
     }
 
     pub async fn resume_goal(&self, id: &str) -> Result<jcs_proto::GoalActionResponse> {

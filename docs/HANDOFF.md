@@ -20,7 +20,7 @@ en paralelo con leases, las verifica con gates, las integra en una rama de objet
 promociona a la base; indexa el código, le pasa al agente contexto citado y la app de
 escritorio permite operar todo sin tocar la consola.
 
-- 12 crates, **322 tests**, árbol limpio.
+- 12 crates, **325 tests**, árbol limpio.
 - `cargo fmt --check`, `cargo clippy -D warnings`, `cargo nextest`, `cargo deny check`:
   todo en verde.
 - Soak verde; tarball Linux con `jcsd`, `jcs` y `jc-studio` (`./scripts/package.sh`).
@@ -31,7 +31,7 @@ escritorio permite operar todo sin tocar la consola.
 
 ```bash
 cargo build --bins
-cargo nextest run --workspace        # 322 tests
+cargo nextest run --workspace        # 325 tests
 python3 scripts/check_contract.py    # contrato de OpenCode
 cargo deny check                     # licencias y avisos
 ```
@@ -101,9 +101,10 @@ detalle, política, memoria, ajustes, eventos y terminales.
 
 Orden recomendado. Cada paso es un commit que compila y con tests:
 
-1. **Chat nativo con OpenCode.** Una sesión interactiva por worktree, con streaming de
-   texto/razonamiento/herramientas y diffs, para no depender del `opencode` dentro del
-   terminal. El cliente ya tiene el lector NDJSON y el daemon ya habla el contrato.
+1. **Chat interactivo con OpenCode.** Enviar mensajes a la sesión desde el chat de la tarea
+   (hoy es de lectura), con streaming y diffs. El cliente ya tiene el lector NDJSON y el
+   daemon ya habla el contrato; falta el endpoint de mensaje y el control de concurrencia con
+   el ejecutor.
 2. **PTY en el daemon.** Endpoints `/pty`, input, resize, stream y cierre; la app cambia
    `terminal::Terminals` por un cliente de esos endpoints. Así cerrar la ventana no mata un
    agente a mitad de tarea.
@@ -211,6 +212,18 @@ consola. La decisión y las alternativas están en la
 - Telegram: token de escritura única en `secrets.json` (0600), chats permitidos en `settings`,
   y aviso de reinicio. La API solo devuelve `telegram_configured` y los últimos cuatro
   caracteres.
+- Objetivos: cancelar (detiene runs/tareas), eliminar (409 si hay runs en vuelo; borra
+  tareas/runs/leases por cascada y conserva el event log con `goal_deleted`) y reintentar
+  como objetivo nuevo.
+- Chat: pestaña «Chat» por tarea; objetivo y tarea como mensajes, deltas de texto agrupados,
+  pensamiento colapsable, herramientas y eventos. Es de lectura; enviar mensajes a la sesión
+  es el siguiente paso.
+- Skills/MCP: `GET /catalog/skills` y `/catalog/mcp` (OpenCode), selección de skills en
+  `settings.agent_skills` que el ejecutor activa antes del prompt, y MCP conectar/desconectar/
+  añadir en caliente/quitar. La consulta correcta de OpenCode es
+  `location[directory]=...`, no `directory=...`.
+- Editor: commit manual desde la raíz del proyecto; los worktrees de tarea los commitea el
+  orquestador tras los gates.
 
 ## Trampas ya encontradas (no repetirlas)
 

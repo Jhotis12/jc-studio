@@ -256,7 +256,11 @@ a él por el mismo socket que el CLI.
 - Detalle por objetivo: **progreso por tarea**, grafo del plan, ejecuciones, gates y
   reanudación. Las tareas que esperan explican por qué (dependencia, rutas o turno).
 - Traza del agente: razonamiento, respuesta, herramientas y gates en vivo por tarea.
-- Código: árbol de archivos, editor con guardado, archivos nuevos y diff del worktree.
+- Chat por tarea: objetivo, respuesta, pensamiento, herramientas y gates.
+- Skills/MCP: catálogo de OpenCode, activación de skills por sesión y MCP en caliente.
+- Objetivos: cancelar, eliminar y reintentar; filtro por texto y terminados.
+- Código: árbol de archivos, editor con guardado, archivos nuevos, diff y commit manual
+  desde la raíz del proyecto.
 - Política: packs, reglas, gates, drift y ejecución manual.
 - Memoria: estadísticas, indexación y búsqueda con citas.
 - Ajustes: modelos, revisión, riesgo, timeout, contexto, reparación, concurrencia y Telegram;

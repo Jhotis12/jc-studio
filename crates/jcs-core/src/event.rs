@@ -57,6 +57,7 @@ event_kinds! {
     GoalCreated => "goal_created",
     GoalStatusChanged => "goal_status_changed",
     PlanCreated => "plan_created",
+    GoalDeleted => "goal_deleted",
 
     // tasks
     TaskCreated => "task_created",
@@ -112,6 +113,7 @@ impl EventKind {
                 | Self::MergeFinished
                 | Self::GoalStatusChanged
                 | Self::TaskStatusChanged
+                | Self::GoalDeleted
                 | Self::SettingsChanged
         )
     }

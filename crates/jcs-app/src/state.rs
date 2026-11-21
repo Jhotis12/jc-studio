@@ -7,9 +7,10 @@ use std::collections::VecDeque;
 
 use jcs_core::Event;
 use jcs_proto::{
-    GateRunResponse, GoalActionResponse, HealthResponse, MemoryIndexResponse, MemorySearchResponse,
-    MemoryStatsView, ModelCatalogEntry, PolicyView, ProjectView, RenderPolicyResponse,
-    RunDetailResponse, SettingsView, StatusResponse, TaskView, Totals,
+    GateRunResponse, GoalActionResponse, HealthResponse, McpServerEntry, MemoryIndexResponse,
+    MemorySearchResponse, MemoryStatsView, ModelCatalogEntry, PolicyView, ProjectView,
+    RenderPolicyResponse, RunDetailResponse, SettingsView, SkillCatalogEntry, StatusResponse,
+    TaskView, Totals,
 };
 
 /// How the window sees the daemon right now.
@@ -113,6 +114,8 @@ pub struct State {
     pub run_detail: Option<RunDetailResponse>,
     pub settings: Option<SettingsView>,
     pub models: Vec<ModelCatalogEntry>,
+    pub skills: Vec<SkillCatalogEntry>,
+    pub mcp: Vec<McpServerEntry>,
     pub notice: Option<Notice>,
 }
 
@@ -156,8 +159,26 @@ impl State {
             Update::MemorySearch(search) => self.memory_search = Some(search),
             Update::RunDetail(detail) => self.run_detail = Some(*detail),
             Update::GoalAction(action) => self.apply_goal_action(action),
+            Update::GoalDeleted(goal_id) => {
+                self.goals.retain(|goal| goal.id != goal_id);
+                let task_ids: Vec<String> = self
+                    .tasks
+                    .iter()
+                    .filter(|task| task.goal_id == goal_id)
+                    .map(|task| task.id.clone())
+                    .collect();
+                self.tasks.retain(|task| task.goal_id != goal_id);
+                self.runs.retain(|run| !task_ids.contains(&run.task_id));
+                if self.selected_goal.as_deref() == Some(goal_id.as_str()) {
+                    self.selected_goal = None;
+                    self.selected_task = None;
+                    self.run_detail = None;
+                }
+            }
             Update::Settings(settings) => self.settings = Some(settings),
             Update::Models(models) => self.models = models,
+            Update::Skills(skills) => self.skills = skills,
+            Update::Mcp(servers) => self.mcp = servers,
             Update::Project(project) => {
                 self.selected_project = Some(project.id.clone());
                 if let Some(existing) = self.projects.iter_mut().find(|p| p.id == project.id) {

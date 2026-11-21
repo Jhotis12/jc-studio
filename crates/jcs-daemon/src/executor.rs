@@ -172,6 +172,13 @@ async fn run_task(state: &AppState, dispatch: &TaskDispatch, guard: &LeaseGuard)
         .link_session(&task.id, &project.id, &session.id, &worktree)
         .await?;
 
+    // Global skill selection: activated before the prompt so the first turn sees them.
+    for skill in state.runtime.agent_skills() {
+        if let Err(error) = agent.activate_skill(&session.id, &skill).await {
+            tracing::warn!(skill = %skill, error = %error, "cannot activate skill for the task");
+        }
+    }
+
     let mut prompt = build_prompt(&goal, &task, &worktree, &branch, &project.base_branch);
     prompt = with_memory_context(state, &project, &goal, &task, prompt).await;
 

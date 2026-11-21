@@ -12,14 +12,38 @@ use crate::ui::{badge, status_color};
 
 pub fn goals(ui: &mut egui::Ui, app: &mut Studio) {
     composer(ui, app);
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        ui.add(
+            egui::TextEdit::singleline(&mut app.goal_filter)
+                .hint_text("filtrar objetivos")
+                .desired_width(220.0),
+        );
+        ui.checkbox(&mut app.show_finished_goals, "mostrar terminados");
+    });
     ui.add_space(8.0);
     ui.separator();
 
-    let goals: Vec<GoalView> = app.state.goals().into_iter().cloned().collect();
+    let filter = app.goal_filter.to_lowercase();
+    let goals: Vec<GoalView> = app
+        .state
+        .goals()
+        .into_iter()
+        .filter(|goal| {
+            (app.show_finished_goals
+                || !matches!(goal.status.as_str(), "succeeded" | "failed" | "cancelled"))
+                && (filter.is_empty() || goal.prompt.to_lowercase().contains(&filter))
+        })
+        .cloned()
+        .collect();
     if goals.is_empty() {
         ui.add_space(24.0);
         ui.vertical_centered(|ui| {
-            ui.label("Todavía no hay objetivos en este proyecto.");
+            ui.label(if filter.is_empty() && app.show_finished_goals {
+                "Todavía no hay objetivos en este proyecto."
+            } else {
+                "No hay objetivos que coincidan con el filtro."
+            });
             ui.label(
                 RichText::new(
                     "Describe un resultado, no una receta: el planificador crea las tareas y \

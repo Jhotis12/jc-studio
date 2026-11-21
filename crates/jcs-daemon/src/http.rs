@@ -21,11 +21,12 @@ use jcs_core::{
 };
 use jcs_proto::{
     AddProjectRequest, AskRequest, AskResponse, ErrorBody, GateOutcomeView, GateRunRequest,
-    GateRunResponse, GateView, GoalView, HealthResponse, ModelCatalogEntry, PackCatalogEntry,
-    PolicyGateView, PolicyPackView, PolicyRuleView, PolicyView, ProjectListResponse,
-    ProjectResponse, ProjectView, RenderPolicyRequest, RenderPolicyResponse, RenderedFileView,
-    RunDetailResponse, RunView, SettingsPatch, SettingsView, StatusResponse, TaskView, Totals,
-    PROTOCOL_HEADER, PROTOCOL_VERSION,
+    GateRunResponse, GateView, GoalView, HealthResponse, McpAddRequest, McpServerEntry,
+    ModelCatalogEntry, PackCatalogEntry, PolicyGateView, PolicyPackView, PolicyRuleView,
+    PolicyView, ProjectListResponse, ProjectResponse, ProjectView, RenderPolicyRequest,
+    RenderPolicyResponse, RenderedFileView, RunDetailResponse, RunView, SettingsPatch,
+    SettingsView, SkillCatalogEntry, StatusResponse, TaskView, Totals, PROTOCOL_HEADER,
+    PROTOCOL_VERSION,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -59,11 +60,20 @@ pub fn router(state: AppState) -> Router {
         .route("/metrics", get(metrics))
         .route("/settings", get(settings).put(update_settings))
         .route("/catalog/models", get(catalog_models))
+        .route("/catalog/skills", get(catalog_skills))
+        .route("/catalog/mcp", get(catalog_mcp).post(add_mcp_server))
+        .route("/catalog/mcp/{server}", delete(remove_mcp_server))
+        .route("/catalog/mcp/{server}/connect", post(connect_mcp_server))
+        .route(
+            "/catalog/mcp/{server}/disconnect",
+            post(disconnect_mcp_server),
+        )
         .route("/memory/index", post(memory_index))
         .route("/memory/search", get(memory_search))
         .route("/memory/stats", get(memory_stats))
-        .route("/goals/{id}", get(goal_detail))
+        .route("/goals/{id}", get(goal_detail).delete(delete_goal))
         .route("/goals/{id}/resume", post(resume_goal))
+        .route("/goals/{id}/cancel", post(cancel_goal))
         .layer(middleware::from_fn(protocol_guard))
         .with_state(state)
 }
@@ -479,9 +489,16 @@ async fn abort(
     Json(request): Json<jcs_proto::AbortRequest>,
 ) -> ApiResult<Json<jcs_proto::OkResponse>> {
     let run_id = jcs_core::RunId::parse(request.run_id)?;
+    abort_run(&state, &run_id).await?;
+    Ok(Json(jcs_proto::OkResponse { ok: true }))
+}
+
+/// Stops one run, its task and, if needed, its goal. Shared by the abort button and by
+/// cancelling a whole objective.
+async fn abort_run(state: &AppState, run_id: &jcs_core::RunId) -> ApiResult<()> {
     let run = state
         .store
-        .get_run(&run_id)
+        .get_run(run_id)
         .await?
         .ok_or_else(|| ApiError::not_found("run_not_found", format!("no run {run_id}")))?;
 
@@ -512,12 +529,14 @@ async fn abort(
         }
 
         if let Some(goal) = state.store.get_goal(&task.goal_id).await? {
-            if let Err(error) = state
-                .store
-                .set_goal_status(&goal.id, jcs_core::GoalStatus::Cancelled)
-                .await
-            {
-                tracing::debug!(error = %error, "goal already terminal");
+            if goal.status.can_transition_to(GoalStatus::Cancelled) {
+                if let Err(error) = state
+                    .store
+                    .set_goal_status(&goal.id, GoalStatus::Cancelled)
+                    .await
+                {
+                    tracing::warn!(error = %error, "cannot cancel the goal");
+                }
             }
         }
     }
@@ -525,12 +544,120 @@ async fn abort(
     state
         .store
         .finish_run(
-            &run_id,
+            run_id,
             RunStatus::Cancelled,
             None,
             Some("aborted by client".to_string()),
         )
         .await?;
+
+    Ok(())
+}
+
+/// Stops a whole objective: every started run, every non-terminal task, then the goal.
+async fn cancel_goal(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<jcs_proto::GoalActionResponse>> {
+    let goal_id = jcs_core::GoalId::parse(id)?;
+    let goal = state
+        .store
+        .get_goal(&goal_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("goal_not_found", format!("no goal {goal_id}")))?;
+
+    if matches!(goal.status, GoalStatus::Succeeded | GoalStatus::Failed) {
+        return Err(ApiError::conflict(
+            "goal_finished",
+            format!("goal {goal_id} is already {}", goal.status.as_str()),
+        ));
+    }
+
+    for task in state.store.list_tasks_by_goal(&goal_id).await? {
+        for run in state.store.list_runs_by_task(&task.id).await? {
+            if run.status == RunStatus::Started {
+                abort_run(&state, &run.id).await?;
+            }
+        }
+        if let Some(current) = state.store.get_task(&task.id).await? {
+            if !current.status.is_terminal() {
+                if let Err(error) = state
+                    .store
+                    .set_task_status(&task.id, TaskStatus::Cancelled)
+                    .await
+                {
+                    tracing::warn!(error = %error, "cannot cancel the task");
+                }
+            }
+        }
+    }
+
+    // An aborted run may already have cancelled the goal; re-read before transitioning.
+    let current = state
+        .store
+        .get_goal(&goal_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("goal_not_found", format!("no goal {goal_id}")))?;
+    if current.status.can_transition_to(GoalStatus::Cancelled) {
+        state
+            .store
+            .set_goal_status(&goal_id, GoalStatus::Cancelled)
+            .await?;
+    }
+
+    Ok(Json(jcs_proto::GoalActionResponse {
+        ok: true,
+        goal_id: goal_id.to_string(),
+        status: GoalStatus::Cancelled.as_str().to_string(),
+    }))
+}
+
+/// Deletes a goal and its tasks, runs and leases. Running work must be cancelled first:
+/// deleting a goal whose agent is still executing would leave an orphan session.
+async fn delete_goal(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<jcs_proto::OkResponse>> {
+    let goal_id = jcs_core::GoalId::parse(id)?;
+    let goal = state
+        .store
+        .get_goal(&goal_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("goal_not_found", format!("no goal {goal_id}")))?;
+
+    let tasks = state.store.list_tasks_by_goal(&goal_id).await?;
+    if tasks
+        .iter()
+        .any(|task| matches!(task.status, TaskStatus::Running | TaskStatus::Verifying))
+    {
+        return Err(ApiError::conflict(
+            "goal_busy",
+            "the goal still has running work; cancel it and wait for the tasks to settle",
+        ));
+    }
+
+    let previous = goal.status;
+    if previous.can_transition_to(GoalStatus::Cancelled) {
+        // Stop the scheduler from dispatching a pending task between this check and the
+        // delete. The row is removed immediately afterwards.
+        state
+            .store
+            .set_goal_status(&goal_id, GoalStatus::Cancelled)
+            .await?;
+    }
+
+    state.store.delete_goal(&goal_id).await?;
+
+    let mut event = NewEvent::new(EventKind::GoalDeleted)
+        .project(&goal.project_id)
+        .goal(&goal_id);
+    event.payload = json!({
+        "prompt": goal.prompt,
+        "previous_status": previous.as_str(),
+    });
+    if let Err(error) = jcs_store::append_event(state.store.as_ref(), event).await {
+        tracing::warn!(error = %error, "cannot record the goal deletion");
+    }
 
     Ok(Json(jcs_proto::OkResponse { ok: true }))
 }
@@ -835,6 +962,93 @@ async fn catalog_models(State(state): State<AppState>) -> ApiResult<Json<Vec<Mod
             })
             .collect(),
     ))
+}
+
+/// Skills installed for the project, as the backend lists them.
+async fn catalog_skills(
+    State(state): State<AppState>,
+    Query(query): Query<ProjectQuery>,
+) -> ApiResult<Json<Vec<SkillCatalogEntry>>> {
+    let project = resolve_project(&state, &query.project).await?;
+    let agent = state.agent.get().await?;
+    let skills = agent.skills(&project.root_path).await?;
+    Ok(Json(
+        skills
+            .into_iter()
+            .map(|skill| SkillCatalogEntry {
+                id: skill.id,
+                name: skill.name,
+                description: skill.description,
+                autoinvoke: skill.autoinvoke,
+                path: skill.path,
+            })
+            .collect(),
+    ))
+}
+
+async fn catalog_mcp(
+    State(state): State<AppState>,
+    Query(query): Query<ProjectQuery>,
+) -> ApiResult<Json<Vec<McpServerEntry>>> {
+    let project = resolve_project(&state, &query.project).await?;
+    let agent = state.agent.get().await?;
+    let servers = agent.mcp_servers(&project.root_path).await?;
+    Ok(Json(
+        servers
+            .into_iter()
+            .map(|server| McpServerEntry {
+                name: server.name,
+                status: server.status,
+                title: server.title,
+                error: server.error,
+            })
+            .collect(),
+    ))
+}
+
+async fn connect_mcp_server(
+    State(state): State<AppState>,
+    Path(server): Path<String>,
+    Query(query): Query<ProjectQuery>,
+) -> ApiResult<Json<jcs_proto::OkResponse>> {
+    let project = resolve_project(&state, &query.project).await?;
+    let agent = state.agent.get().await?;
+    agent.connect_mcp(&server, &project.root_path).await?;
+    Ok(Json(jcs_proto::OkResponse { ok: true }))
+}
+
+async fn disconnect_mcp_server(
+    State(state): State<AppState>,
+    Path(server): Path<String>,
+    Query(query): Query<ProjectQuery>,
+) -> ApiResult<Json<jcs_proto::OkResponse>> {
+    let project = resolve_project(&state, &query.project).await?;
+    let agent = state.agent.get().await?;
+    agent.disconnect_mcp(&server, &project.root_path).await?;
+    Ok(Json(jcs_proto::OkResponse { ok: true }))
+}
+
+async fn add_mcp_server(
+    State(state): State<AppState>,
+    Json(request): Json<McpAddRequest>,
+) -> ApiResult<Json<jcs_proto::OkResponse>> {
+    let project = resolve_project(&state, &request.project).await?;
+    let agent = state.agent.get().await?;
+    agent
+        .add_mcp(&request.server, request.config, &project.root_path)
+        .await?;
+    Ok(Json(jcs_proto::OkResponse { ok: true }))
+}
+
+async fn remove_mcp_server(
+    State(state): State<AppState>,
+    Path(server): Path<String>,
+    Query(query): Query<ProjectQuery>,
+) -> ApiResult<Json<jcs_proto::OkResponse>> {
+    let project = resolve_project(&state, &query.project).await?;
+    let agent = state.agent.get().await?;
+    agent.remove_mcp(&server, &project.root_path).await?;
+    Ok(Json(jcs_proto::OkResponse { ok: true }))
 }
 
 async fn settings(State(state): State<AppState>) -> Json<SettingsView> {
@@ -1383,6 +1597,80 @@ mod tests {
             ),
             "create a file named hello.md containing"
         );
+    }
+
+    #[tokio::test]
+    async fn a_goal_can_be_cancelled_and_deleted() {
+        let state = test_state().await;
+        let directory = tempfile::tempdir().unwrap();
+        let project = Project {
+            id: ProjectId::new(),
+            name: "delete".to_string(),
+            root_path: directory.path().to_path_buf(),
+            base_branch: "main".to_string(),
+            created_at: jiff::Timestamp::now(),
+            auto_merge: false,
+            budget_usd_per_day: None,
+            budget_tokens_per_day: None,
+        };
+        state.store.insert_project(&project).await.unwrap();
+        let goal = state
+            .store
+            .create_goal_with_settings(&project.id, "do it", None, None, "auto")
+            .await
+            .unwrap();
+        let task = state.store.create_task(&goal.id, "task").await.unwrap();
+        state
+            .store
+            .set_task_status(&task.id, TaskStatus::Running)
+            .await
+            .unwrap();
+        let run = state.store.start_run(&task.id).await.unwrap();
+
+        let app = router(state.clone());
+        let (status, body) = send(
+            app.clone(),
+            "POST",
+            &format!("/goals/{}/cancel", goal.id),
+            Some("{}"),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(
+            state
+                .store
+                .get_goal(&goal.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            GoalStatus::Cancelled
+        );
+        assert_eq!(
+            state
+                .store
+                .get_task(&task.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            TaskStatus::Cancelled
+        );
+        assert_eq!(
+            state.store.get_run(&run.id).await.unwrap().unwrap().status,
+            RunStatus::Cancelled
+        );
+
+        let (status, body) = send(app, "DELETE", &format!("/goals/{}", goal.id), None).await;
+        assert_eq!(status, 200, "{body}");
+        assert!(state.store.get_goal(&goal.id).await.unwrap().is_none());
+        assert!(state.store.get_task(&task.id).await.unwrap().is_none());
+        let events = jcs_store::recent_events(state.store.as_ref(), 50)
+            .await
+            .unwrap();
+        assert!(events
+            .iter()
+            .any(|event| event.kind == EventKind::GoalDeleted));
     }
 
     #[tokio::test]

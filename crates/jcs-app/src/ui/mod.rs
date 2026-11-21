@@ -8,6 +8,7 @@ pub mod board;
 pub mod code;
 pub mod dag;
 pub mod details;
+pub mod extensions;
 pub mod memory;
 pub mod policy;
 pub mod settings;
@@ -254,34 +255,36 @@ fn central(context: &egui::Context, app: &mut Studio, show_projects: bool) {
             if !app.wide {
                 ui.selectable_value(&mut app.tab, Tab::Details, "Detalle");
             }
+            ui.selectable_value(&mut app.tab, Tab::Extensions, "Skills/MCP");
             ui.selectable_value(&mut app.tab, Tab::Policy, "Política");
             ui.selectable_value(&mut app.tab, Tab::Memory, "Memoria");
             ui.selectable_value(&mut app.tab, Tab::System, "Sistema");
+        });
+        ui.horizontal(|ui| {
+            let active = app
+                .state
+                .goals
+                .iter()
+                .filter(|goal| matches!(goal.status.as_str(), "pending" | "running"))
+                .count();
+            let working = app
+                .state
+                .tasks
+                .iter()
+                .filter(|task| matches!(task.status.as_str(), "running" | "verifying"))
+                .count();
+            ui.label(
+                RichText::new(format!(
+                    "{active} objetivos activos · {working} tareas en curso"
+                ))
+                .weak()
+                .small(),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some(project) = app.state.project() {
                     ui.label(RichText::new(&project.base_branch).weak().monospace());
                     ui.label(RichText::new("rama base").weak());
-                    ui.separator();
                 }
-                let active = app
-                    .state
-                    .goals
-                    .iter()
-                    .filter(|goal| matches!(goal.status.as_str(), "pending" | "running"))
-                    .count();
-                let working = app
-                    .state
-                    .tasks
-                    .iter()
-                    .filter(|task| matches!(task.status.as_str(), "running" | "verifying"))
-                    .count();
-                ui.label(
-                    RichText::new(format!(
-                        "{active} objetivos activos · {working} tareas en curso"
-                    ))
-                    .weak()
-                    .small(),
-                );
             });
         });
         ui.separator();
@@ -290,6 +293,7 @@ fn central(context: &egui::Context, app: &mut Studio, show_projects: bool) {
             Tab::Goals => board::goals(ui, app),
             Tab::Code => code::panel(ui, app),
             Tab::Details => details::goal(ui, app),
+            Tab::Extensions => extensions::panel(ui, app),
             Tab::Policy => policy::panel(ui, app),
             Tab::Memory => memory::panel(ui, app),
             Tab::System => system::panel(ui, app),
@@ -421,11 +425,7 @@ fn console(context: &egui::Context, app: &mut Studio) {
                     crate::app::ConsoleTab::Events,
                     "Eventos",
                 );
-                ui.selectable_value(
-                    &mut app.console_tab,
-                    crate::app::ConsoleTab::Agent,
-                    "Agente",
-                );
+                ui.selectable_value(&mut app.console_tab, crate::app::ConsoleTab::Agent, "Chat");
                 let label = if app.terminals.is_empty() {
                     "Terminal".to_string()
                 } else {

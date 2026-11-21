@@ -26,6 +26,7 @@ pub enum Tab {
     Goals,
     Code,
     Details,
+    Extensions,
     Policy,
     Memory,
     System,
@@ -125,6 +126,7 @@ impl GlobalForm {
                 (!token.is_empty()).then(|| token.to_string())
             },
             telegram_chat_ids: Some(parse_chat_ids(&self.telegram_chat_ids)?),
+            agent_skills: None,
         })
     }
 }
@@ -165,6 +167,28 @@ pub struct AddProjectForm {
     pub base_branch: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExtensionsTab {
+    #[default]
+    Skills,
+    Mcp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum McpKind {
+    #[default]
+    Local,
+    Remote,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct McpForm {
+    pub name: String,
+    pub kind: McpKind,
+    pub command: String,
+    pub url: String,
+}
+
 pub struct Studio {
     pub state: State,
     pub daemon: Daemon,
@@ -185,6 +209,7 @@ pub struct Studio {
     pub settings_synced: bool,
     pub confirm_remove: bool,
     pub confirm_restart: bool,
+    pub confirm_delete_goal: bool,
     pub memory_query: String,
     /// Whether the window is wide enough for the three-panel layout.
     pub wide: bool,
@@ -195,6 +220,13 @@ pub struct Studio {
     loaded_task_events: Option<String>,
     /// Goal for which a task was selected automatically once.
     auto_task_for: Option<String>,
+    /// Project whose skills/MCP catalog is loaded.
+    pub extensions_loaded_for: Option<String>,
+    pub mcp_form: McpForm,
+    pub extensions_tab: ExtensionsTab,
+    pub skill_filter: String,
+    pub goal_filter: String,
+    pub show_finished_goals: bool,
     /// Terminal sessions, one per open tab.
     pub terminals: crate::terminal::Terminals,
     /// File tree, editor and task diff.
@@ -225,11 +257,18 @@ impl Studio {
             settings_synced: false,
             confirm_remove: false,
             confirm_restart: false,
+            confirm_delete_goal: false,
             memory_query: String::new(),
             wide: true,
             loaded_project: None,
             loaded_task_events: None,
             auto_task_for: None,
+            extensions_loaded_for: None,
+            mcp_form: McpForm::default(),
+            extensions_tab: ExtensionsTab::default(),
+            skill_filter: String::new(),
+            goal_filter: String::new(),
+            show_finished_goals: true,
             terminals: crate::terminal::Terminals::default(),
             code: crate::ui::code::CodeState::default(),
         }
@@ -248,6 +287,7 @@ impl Studio {
         self.state.selected_task = None;
         self.auto_task_for = None;
         self.state.run_detail = None;
+        self.confirm_delete_goal = false;
         // On a narrow window the detail is a tab, so selecting a goal must reveal it.
         if !self.wide {
             self.tab = Tab::Details;
@@ -289,6 +329,9 @@ impl Studio {
             self.tab = Tab::Memory;
         } else if pressed(egui::Key::Num5) {
             self.tab = Tab::System;
+        }
+        if pressed(egui::Key::E) {
+            self.tab = Tab::Extensions;
         }
         if pressed(egui::Key::Comma) {
             self.open_settings();
@@ -374,6 +417,103 @@ impl Studio {
                 .unwrap_or_default(),
         };
         self.confirm_remove = false;
+    }
+
+    /// Re-queues a failed or cancelled objective with the same prompt as a new goal.
+    pub fn retry_goal(&mut self, goal_id: &str) {
+        let Some(goal) = self.state.goals.iter().find(|goal| goal.id == goal_id) else {
+            return;
+        };
+        let prompt = goal.prompt.clone();
+        let Some(project) = self
+            .state
+            .project_by_id(&goal.project_id)
+            .map(|project| project.name.clone())
+        else {
+            return;
+        };
+        self.daemon.send(Command::Ask {
+            project,
+            prompt,
+            model: None,
+            plan: true,
+        });
+        self.state.notice = Some(crate::state::Notice {
+            message: "objetivo reencolado como uno nuevo".to_string(),
+            error: false,
+        });
+    }
+
+    /// Enables or disables a skill for future task sessions. Applied immediately; the
+    /// daemon activates the selection when it creates a session.
+    pub fn toggle_skill(&mut self, id: String, enabled: bool) {
+        let Some(settings) = &self.state.settings else {
+            return;
+        };
+        let mut skills = settings.agent_skills.clone();
+        if enabled {
+            if !skills.contains(&id) {
+                skills.push(id);
+            }
+        } else {
+            skills.retain(|skill| skill != &id);
+        }
+        self.daemon
+            .send(Command::SaveSettings(jcs_proto::SettingsPatch {
+                agent_skills: Some(skills),
+                ..Default::default()
+            }));
+    }
+
+    /// Adds an MCP server at runtime. The daemon validates the config and the backend
+    /// connects it immediately; persistence is OpenCode's responsibility.
+    pub fn add_mcp(&mut self) {
+        let Some(project) = self.state.project() else {
+            return;
+        };
+        let name = self.mcp_form.name.trim().to_string();
+        if name.is_empty() {
+            self.state.notice = Some(crate::state::Notice {
+                message: "el servidor MCP necesita un nombre".to_string(),
+                error: true,
+            });
+            return;
+        }
+        let config = match self.mcp_form.kind {
+            McpKind::Local => {
+                let command: Vec<String> = self
+                    .mcp_form
+                    .command
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect();
+                if command.is_empty() {
+                    self.state.notice = Some(crate::state::Notice {
+                        message: "un MCP local necesita un comando".to_string(),
+                        error: true,
+                    });
+                    return;
+                }
+                serde_json::json!({ "type": "local", "command": command })
+            }
+            McpKind::Remote => {
+                let url = self.mcp_form.url.trim();
+                if url.is_empty() {
+                    self.state.notice = Some(crate::state::Notice {
+                        message: "un MCP remoto necesita una URL".to_string(),
+                        error: true,
+                    });
+                    return;
+                }
+                serde_json::json!({ "type": "remote", "url": url })
+            }
+        };
+        self.daemon.send(Command::AddMcp {
+            project: project.name.clone(),
+            server: name,
+            config,
+        });
+        self.mcp_form = McpForm::default();
     }
 
     pub fn open_settings(&mut self) {
@@ -523,6 +663,7 @@ mod tests {
             max_concurrent: 4,
             restart_required: Vec::new(),
             telegram_chat_ids: vec![42],
+            agent_skills: Vec::new(),
             telegram_configured: true,
             telegram_token_hint: Some("abcd".to_string()),
         };

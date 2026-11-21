@@ -20,9 +20,9 @@ Si llegas aquí después de una compactación de contexto, el punto de entrada e
 | 5 — Revisión de código y seguridad | 6 | **completa** | 100 % |
 | 6 — Telegram | 4 | operativa | 85 % |
 | 7 — Hardening y distribución | 10 | casi completa (Linux empaquetado) | 80 % |
-| 8 — App de escritorio (egui) | 17 | funcional; faltan chat nativo y PTY en daemon | 85 % |
+| 8 — App de escritorio (egui) | 18 | funcional; faltan chat interactivo y PTY en daemon | 90 % |
 
-- **Producto completo (backend + app): ~90 %.**
+- **Producto completo (backend + app): ~92 %.**
 - **MVP (fases 0–4): ~99 %.**
 
 El porcentaje mide alcance, no riesgo. La tesis arquitectónica (daemon durable, agente real,
@@ -108,6 +108,16 @@ El razonamiento y las alternativas están en la [ADR 0010](adr/0010-desktop-app-
 - [x] 8.9 Telegram configurable desde Ajustes: token de escritura única, chats permitidos,
       estado «configurado · …abcd» y aviso de reinicio. El token va a `secrets.json` (0600),
       nunca a SQLite, logs ni API.
+- [x] 8.10 Gestión de objetivos: cancelar (detiene runs y tareas, conserva el historial),
+      eliminar (bloqueado si hay runs en vuelo, conserva el event log) y reintentar como
+      objetivo nuevo. Acciones en la zona de gestión del detalle.
+- [x] 8.11 Skills y MCP: catálogo real de OpenCode (346 skills en este entorno), búsqueda,
+      selección que se activa al crear la sesión de cada tarea, y lista de servidores MCP con
+      conectar/desconectar, añadir en caliente y quitar. Los MCP añadidos en caliente no
+      persisten al reiniciar OpenCode; para eso está su configuración.
+- [x] 8.12 Chat del agente por tarea: objetivo y tarea como mensajes, respuesta coalescida,
+      pensamiento colapsable, herramientas y eventos; solo lectura. El commit manual desde
+      el editor está limitado a la raíz del proyecto; los worktrees los commitea el agente.
 
 Nota: `egui 0.37` rediseñó `eframe::App`; la app está anclada a **0.31** hasta que la nueva
 API esté documentada y probada.
@@ -150,8 +160,8 @@ empaquetado en `sqlx` 0.9), aceptado con precondiciones y dos condiciones de sal
 
 ## Siguiente
 
-1. Chat nativo con OpenCode dentro de la app (sesión por worktree, streaming y diffs),
-   además del terminal actual.
+1. Chat **interactivo** con OpenCode dentro de la app (enviar mensajes a la sesión,
+   streaming y diffs), además del chat de lectura y el terminal actual.
 2. Mover el PTY al daemon (`/pty`, stream y resize) para que las terminales sobrevivan al
    cierre de la ventana y a un reinicio de la app.
 3. Editor: resaltado de sintaxis, búsqueda en contenido, renombrar/borrar y commit/push.

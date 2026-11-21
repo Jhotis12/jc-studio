@@ -30,6 +30,8 @@ pub struct Values {
     pub max_concurrent: u64,
     /// Chats allowed to command the Telegram bot.
     pub telegram_chat_ids: Vec<i64>,
+    /// Skills activated on every new task session.
+    pub agent_skills: Vec<String>,
 }
 
 impl Default for Values {
@@ -47,6 +49,7 @@ impl Default for Values {
             max_repair_cycles: 2,
             max_concurrent: 4,
             telegram_chat_ids: Vec::new(),
+            agent_skills: Vec::new(),
         }
     }
 }
@@ -66,6 +69,7 @@ impl Values {
             max_repair_cycles: config.max_repair_cycles as u64,
             max_concurrent: config.max_concurrent as u64,
             telegram_chat_ids: config.telegram_chat_ids.clone(),
+            agent_skills: Vec::new(),
         }
     }
 
@@ -84,6 +88,7 @@ impl Values {
             max_concurrent: self.max_concurrent,
             restart_required,
             telegram_chat_ids: self.telegram_chat_ids.clone(),
+            agent_skills: self.agent_skills.clone(),
             telegram_configured: false,
             telegram_token_hint: None,
         }
@@ -221,6 +226,26 @@ impl RuntimeSettings {
             &mut changed,
         )?;
 
+        if let Some(skills) = &patch.agent_skills {
+            if skills.len() > 20 {
+                return Err("at most 20 skills can be activated".to_string());
+            }
+            let mut next: Vec<String> = Vec::new();
+            for skill in skills {
+                let skill = skill.trim();
+                if skill.is_empty() {
+                    return Err("skill ids cannot be empty".to_string());
+                }
+                if !next.iter().any(|existing| existing == skill) {
+                    next.push(skill.to_string());
+                }
+            }
+            if values.agent_skills != next {
+                values.agent_skills = next;
+                changed.push("agent_skills".to_string());
+            }
+        }
+
         if let Some(chats) = &patch.telegram_chat_ids {
             if chats.len() > 20 {
                 return Err("at most 20 Telegram chats are allowed".to_string());
@@ -298,6 +323,10 @@ impl RuntimeSettings {
 
     pub fn telegram_chat_ids(&self) -> Vec<i64> {
         self.snapshot().telegram_chat_ids
+    }
+
+    pub fn agent_skills(&self) -> Vec<String> {
+        self.snapshot().agent_skills
     }
 
     /// Marks a setting whose new value needs a process restart (the token is applied when

@@ -63,6 +63,8 @@ pub struct CodeState {
     pub diff: Option<String>,
     pub diff_error: Option<String>,
     pub status: Option<(String, bool)>,
+    pub commit_message: String,
+    pub git_output: Option<(String, bool)>,
 }
 
 impl Default for CodeState {
@@ -80,6 +82,8 @@ impl Default for CodeState {
             diff: None,
             diff_error: None,
             status: None,
+            commit_message: String::new(),
+            git_output: None,
         }
     }
 }
@@ -192,6 +196,48 @@ impl CodeState {
                 self.status = Some(("archivo creado".into(), false));
             }
             Err(error) => self.status = Some((format!("no se pudo crear: {error}"), true)),
+        }
+    }
+
+    /// Stages everything and commits in the given root. Only used for the project checkout:
+    /// task worktrees are committed by the orchestrator after verification.
+    pub fn commit(&mut self, root: &Path) -> Result<(), String> {
+        let message = self.commit_message.trim();
+        if message.is_empty() {
+            return Err("escribe un mensaje de commit".to_string());
+        }
+        let add = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["add", "-A"])
+            .output()
+            .map_err(|error| format!("no se pudo ejecutar git add: {error}"))?;
+        if !add.status.success() {
+            return Err(String::from_utf8_lossy(&add.stderr).trim().to_string());
+        }
+        let commit = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["commit", "-m", message])
+            .output()
+            .map_err(|error| format!("no se pudo ejecutar git commit: {error}"))?;
+        let stdout = String::from_utf8_lossy(&commit.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&commit.stderr).to_string();
+        if commit.status.success() {
+            self.commit_message.clear();
+            self.git_output = Some((stdout, false));
+            self.refresh();
+            self.diff = None;
+            self.show_diff = false;
+            Ok(())
+        } else {
+            let detail = if stderr.trim().is_empty() {
+                stdout
+            } else {
+                stderr
+            };
+            self.git_output = Some((detail.clone(), true));
+            Err(detail.trim().to_string())
         }
     }
 
@@ -550,6 +596,80 @@ fn editor(ui: &mut egui::Ui, app: &mut Studio) {
                 );
             });
     }
+
+    commit_panel(ui, app, &path);
+}
+
+fn commit_panel(ui: &mut egui::Ui, app: &mut Studio, open_file: &Path) {
+    let project_root = app
+        .state
+        .project()
+        .map(|project| PathBuf::from(&project.root_path));
+    let at_project_root = project_root
+        .as_ref()
+        .is_some_and(|root| app.code.root.as_ref() == Some(root));
+
+    ui.add_space(8.0);
+    egui::CollapsingHeader::new("Commit manual")
+        .default_open(false)
+        .show(ui, |ui| {
+            if !at_project_root {
+                ui.label(
+                    RichText::new(
+                        "Estás en el worktree de una tarea. El orquestador hace el commit                          después de los gates; para commitear a mano, desactiva «usar worktree                          de la tarea» y vuelve a la raíz del proyecto.",
+                    )
+                    .weak()
+                    .small(),
+                );
+                return;
+            }
+            ui.label(
+                RichText::new(format!(
+                    "Se incluirán todos los cambios del repositorio, no solo {}.",
+                    open_file
+                        .file_name()
+                        .map(|name| name.to_string_lossy().to_string())
+                        .unwrap_or_default()
+                ))
+                .weak()
+                .small(),
+            );
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut app.code.commit_message)
+                        .hint_text("mensaje de commit")
+                        .desired_width(f32::INFINITY),
+                );
+                if ui
+                    .add_enabled(
+                        !app.code.commit_message.trim().is_empty(),
+                        egui::Button::new("Commit"),
+                    )
+                    .clicked()
+                {
+                    if let Some(root) = &project_root {
+                        if let Err(error) = app.code.commit(root) {
+                            app.state.notice = Some(crate::state::Notice {
+                                message: error,
+                                error: true,
+                            });
+                        }
+                    }
+                }
+            });
+            if let Some((output, error)) = &app.code.git_output {
+                ui.label(
+                    RichText::new(output.trim())
+                        .monospace()
+                        .small()
+                        .color(if *error {
+                            Color32::from_rgb(225, 110, 110)
+                        } else {
+                            Color32::from_rgb(120, 200, 130)
+                        }),
+                );
+            }
+        });
 }
 
 fn diff_panel(ui: &mut egui::Ui, app: &mut Studio) {
@@ -618,6 +738,43 @@ mod tests {
         assert!(state.save());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "adios");
         assert!(!state.open.as_ref().unwrap().dirty());
+    }
+
+    #[test]
+    fn a_manual_commit_from_the_project_root_works() {
+        let directory = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| {
+            let status = Command::new("git")
+                .arg("-C")
+                .arg(directory.path())
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success());
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "test@jcs.local"]);
+        git(&["config", "user.name", "Test"]);
+        std::fs::write(directory.path().join("a.txt"), "hola").unwrap();
+
+        let mut state = CodeState {
+            root: Some(directory.path().to_path_buf()),
+            commit_message: "prueba de commit".to_string(),
+            ..CodeState::default()
+        };
+        state.commit(directory.path()).unwrap();
+
+        let log = Command::new("git")
+            .arg("-C")
+            .arg(directory.path())
+            .args(["log", "-1", "--format=%s"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&log.stdout).trim(),
+            "prueba de commit"
+        );
+        assert!(state.commit_message.is_empty());
     }
 
     #[test]
