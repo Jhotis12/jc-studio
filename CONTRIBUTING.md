@@ -60,6 +60,8 @@ Un commit no debe mezclar refactor y cambio de comportamiento: eso hace el rever
 - **End-to-end real**: `just e2e` — objetivo → worktree → agente → gates → commit, con
   aserciones sobre el contenido del commit. Requiere `opencode service status` y usa un
   modelo gratuito por defecto (`JCS_E2E_MODEL` para cambiarlo).
+- **Política y reparación**: `just e2e-policy` — un gate exige un token que el objetivo no
+  menciona; el run solo puede terminar en verde si el bucle de reparación se ejecutó.
 - **Durabilidad**: `just chaos` — `kill -9` a mitad de run, reinicio, y verificación de
   `interrupted` + `blocked`, cero commits parciales y un run posterior correcto.
 

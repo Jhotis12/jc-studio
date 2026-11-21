@@ -26,7 +26,7 @@ Cada entrada tiene una condición de salida; sin ella, no es una decisión, es u
 | Tema | Estado | Cuándo |
 |---|---|---|
 | Modo `spawn` de `opencode serve` (proceso propio por instancia) | No implementado; el modo `attach` es el correcto en esta máquina | Solo si hace falta aislamiento real por proyecto (Fase 7) |
-| Aprobación por *ruleset* al crear la sesión | No enviado: la precedencia de reglas no está verificada | Fase 2, con una sonda que ejercite una herramienta real |
+| Aprobación por *ruleset* al crear la sesión | No enviado: la precedencia de reglas no está verificada. Los packs ya declaran reglas y gates, pero no compilan todavía a `permission` de OpenCode | Fase 3, con una sonda que ejercite una herramienta real |
 | Merge automático de la rama de tarea | No implementado: el commit queda en su rama y el merge es manual | Fase 3 (merge queue) |
 | TUI `ratatui` | No implementada: el CLI cubre el ciclo completo | Fase 3 |
 | Descomposición de objetivos en DAG de tareas | No implementada: un objetivo = una tarea | Fase 3 |

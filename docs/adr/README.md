@@ -15,6 +15,7 @@ nunca se renumera; si una decisión cambia, se escribe uno nuevo y el anterior p
 | [0004](0004-policy-as-code-with-gates.md) | Política como código con doble capa: instrucciones + gates ejecutables | Accepted |
 | [0005](0005-worktree-per-task.md) | Un worktree por tarea y git vía CLI (no libgit2/gix) | Accepted |
 | [0006](0006-client-streaming-ndjson.md) | TUI ratatui y streaming NDJSON sobre UDS (no SSE para el cliente) | Accepted |
+| [0007](0007-pack-format-and-repair-loop.md) | Packs en TOML, composición determinista y bucle de reparación | Accepted |
 
 ## Cómo añadir una ADR
 

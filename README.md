@@ -18,14 +18,17 @@ Telegram      ─┘                            │
 
 ## Estado
 
-**Fase 0 (decisiones + esqueleto) y Fase 1 (walking skeleton vertical): completas.**
+**Fases 0, 1 y 2: completas.**
 
-Funciona de punta a punta: daemon durable → worktree aislado → sesión de agente real →
-stream de eventos → gates → commit convencional, con recuperación tras crash y un
-historial de eventos reanudable.
+Funciona de punta a punta: objetivo → worktree aislado → sesión de agente real → gates
+**definidos por la política del proyecto** → bucle de reparación acotado → commit
+convencional, con recuperación tras crash y un historial de eventos reanudable.
 
-Lo que **no** hay todavía (fases 2–7): compilador de políticas y packs, descomposición de
-objetivos en DAG, TUI ratatui, grafo de código/RAG, Telegram, merge queue.
+La política es código versionado: packs en TOML, instrucciones en Markdown, gates
+ejecutables, lock con hashes y `render --check` como gate de CI.
+
+Lo que **no** hay todavía (fases 3–7): descomposición de objetivos en DAG, TUI ratatui,
+grafo de código/RAG, revisor adversarial, Telegram, merge queue.
 
 Riesgos aceptados y decisiones diferidas: [`docs/PENDING.md`](docs/PENDING.md).
 
@@ -38,6 +41,7 @@ Un run termina por el primero de estos hechos:
 | El backend reporta `outcome: succeeded` | gates → commit → tarea `succeeded` |
 | El backend reporta `failed` / `interrupted` | tarea `failed`, run `failed` |
 | El agente hace una **pregunta** (form) | form cancelado, tarea y objetivo `blocked`, con la pregunta en el log |
+| Un gate requerido falla | prompt de reparación con la salida del gate, hasta `JCS_MAX_REPAIR_CYCLES`; si persiste, `blocked` |
 | Se agota `JCS_RUN_TIMEOUT_SECS` (900 s por defecto) | run `failed`, motivo explícito |
 | `jcs abort <run>` | tarea y objetivo `cancelled` |
 
@@ -83,6 +87,16 @@ jcs ask servicio "añade validación de email en el endpoint de registro"
 # usa -p para desambiguar
 jcs ask -p servicio "otra cosa"
 
+# política del proyecto
+jcs policy packs                     # packs disponibles
+jcs policy show <proyecto>           # reglas y gates efectivos, con su origen
+jcs policy render <proyecto>         # escribe AGENTS.md y .jcs/gates.toml
+jcs policy render <proyecto> --check # falla si hay drift (para CI)
+
+# gates, a mano y en el checkout principal (diagnóstico)
+jcs gates list <proyecto>
+jcs gates run <proyecto> --gate clippy
+
 # estado, historial y detalle
 jcs status
 jcs runs <run-id>
@@ -92,6 +106,26 @@ jcs logs --follow
 # abortar
 jcs abort <run-id>
 ```
+
+### Política del proyecto
+
+Crea `.jcs/policy.toml` en el repositorio y commítalo:
+
+```toml
+packs = ["rust-service", "testing-tdd"]
+
+[rules]
+no_unwrap_outside_tests = "permitido en build.rs"
+
+disabled_gates = ["coverage"]
+
+# instrucciones propias, renderizadas después de los packs
+instructions = [".jcs/house-rules.md"]
+```
+
+`jcs policy render` genera `AGENTS.md` y `.jcs/gates.toml`. Los archivos generados llevan
+una marca; un `AGENTS.md` escrito a mano **no se sobrescribe** sin `--force`, y al forzarlo
+se guarda `AGENTS.md.pre-jcs.bak`.
 
 El run deja un **commit en una rama aislada** (`jcs/<objetivo>/<sufijo>`) dentro de un
 worktree propio. No toca tu rama de trabajo. El merge automático llega en la Fase 3;
@@ -120,6 +154,8 @@ git -C ~/code/mi-servicio diff main...jcs/<rama>
 | `jcs-store` | SQLite (WAL) + event log append-only + repositorios. |
 | `jcs-agent` | Cliente OpenCode (HTTP + SSE) y descubrimiento del servicio. |
 | `jcs-git` | Worktrees, commits convencionales, gates de limpieza. |
+| `jcs-gates` | Ejecución de gates: timeout con muerte del grupo, salida acotada, parsers tipados. |
+| `jcs-policy` | Packs, composición determinista, render, lock y detección de drift. |
 | `jcs-daemon` | `jcsd`: API sobre UDS, ejecutor de tareas, lifecycle. |
 | `jcs-cli` | `jcs`: TUI/CLI, cliente fino. |
 
@@ -133,6 +169,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 just e2e        # end-to-end real (modelo gratuito, requiere opencode servicio activo)
+just e2e-policy # gate que exige un token: prueba que el bucle de reparación funciona
 just chaos      # kill -9 a mitad de run y recuperación
 just audit      # licencias y avisos de dependencias
 ```
