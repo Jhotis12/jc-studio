@@ -84,9 +84,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-core/src/event.rs": {
-    "mtime": 1795295720.348769,
-    "seen": 1795296581.4849958,
-    "ast_hash": "9a932e207911fb81f734e9947734da51",
+    "mtime": 1795301035.627307,
+    "seen": 1795301248.2731857,
+    "ast_hash": "27b7ded391866737ae38427cdbd28c82",
     "semantic_hash": ""
   },
   "crates/jcs-core/src/ids.rs": {
@@ -138,15 +138,15 @@
     "semantic_hash": ""
   },
   "crates/jcs-daemon/src/http.rs": {
-    "mtime": 1795300303.0950565,
-    "seen": 1795300336.4427147,
-    "ast_hash": "f3dc3f90a8ca985be4d3b2a42b02a5e2",
+    "mtime": 1795300951.123347,
+    "seen": 1795301248.2732959,
+    "ast_hash": "032bd1cf8cae2a41557d4b33e9559c62",
     "semantic_hash": ""
   },
   "crates/jcs-daemon/src/main.rs": {
-    "mtime": 1795299336.5242252,
-    "seen": 1795299474.2523756,
-    "ast_hash": "cd7b6a6cf6a26b8e0b4d31e5d13d67ce",
+    "mtime": 1795300939.9471884,
+    "seen": 1795301248.2732968,
+    "ast_hash": "e5f5bc83af89900e8f9ba21e10cbd050",
     "semantic_hash": ""
   },
   "crates/jcs-daemon/src/state.rs": {
@@ -306,9 +306,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1795300335.295708,
-    "seen": 1795300336.4435718,
-    "ast_hash": "c33c2c41fdf7a72c31f57637ae8a6919",
+    "mtime": 1795301219.5616004,
+    "seen": 1795301248.274141,
+    "ast_hash": "469d33d0226ba340721bf907ab628484",
     "semantic_hash": ""
   },
   "docs/adr/0001-daemon-thin-client.md": {
@@ -348,9 +348,9 @@
     "semantic_hash": ""
   },
   "docs/adr/README.md": {
-    "mtime": 1795300089.438678,
-    "seen": 1795300114.1530333,
-    "ast_hash": "8a42f39387d7bac66dd08d339f259c1c",
+    "mtime": 1795301219.5608287,
+    "seen": 1795301248.2744257,
+    "ast_hash": "1b5914dc13cefc54f78c1087eca80952",
     "semantic_hash": ""
   },
   "docs/contracts/CONTRACT.md": {
@@ -510,9 +510,9 @@
     "semantic_hash": ""
   },
   "docs/PENDING.md": {
-    "mtime": 1795299455.4768763,
-    "seen": 1795299474.2533603,
-    "ast_hash": "148fbc8f44955f8ef603fa964fb01810",
+    "mtime": 1795301237.0615253,
+    "seen": 1795301248.274268,
+    "ast_hash": "c3e0c48ff9d53e54d47e1b84cfdd7e9d",
     "semantic_hash": ""
   },
   "docs/adr/0007-pack-format-and-repair-loop.md": {
@@ -552,9 +552,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-daemon/src/planner.rs": {
-    "mtime": 1795299899.9670343,
-    "seen": 1795300114.151985,
-    "ast_hash": "a4361bfd7895adf361cec089b15f0ec5",
+    "mtime": 1795300939.9470446,
+    "seen": 1795301248.2733212,
+    "ast_hash": "0349f1e08dae202750b08b3957c7bac8",
     "semantic_hash": ""
   },
   "crates/jcs-daemon/src/scheduler.rs": {
@@ -690,9 +690,9 @@
     "semantic_hash": ""
   },
   "docs/STATUS.md": {
-    "mtime": 1795300335.2952423,
-    "seen": 1795300336.4437082,
-    "ast_hash": "f2232bc7587def271e66dfeb5437691b",
+    "mtime": 1795301219.560988,
+    "seen": 1795301248.2742696,
+    "ast_hash": "931829ef09b1de7c134faadf9c5b291d",
     "semantic_hash": ""
   },
   "docs/adr/0009-code-memory.md": {
@@ -720,15 +720,15 @@
     "semantic_hash": ""
   },
   "crates/jcs-app/src/app.rs": {
-    "mtime": 1795300303.094488,
-    "seen": 1795300336.4422567,
-    "ast_hash": "cf01f8cc8b1eceb09e06a30dbf319f2f",
+    "mtime": 1795301195.4848962,
+    "seen": 1795301248.2729177,
+    "ast_hash": "72049ba97e4b3c83e49417c2ff5848c4",
     "semantic_hash": ""
   },
   "crates/jcs-app/src/daemon.rs": {
-    "mtime": 1795299952.9663084,
-    "seen": 1795300114.1515577,
-    "ast_hash": "2e2a23f37ccae9922a52dbcc7efd6851",
+    "mtime": 1795300971.0767634,
+    "seen": 1795301248.2729192,
+    "ast_hash": "b98ba038a57fc6496ad42c5f9cf82a83",
     "semantic_hash": ""
   },
   "crates/jcs-app/src/main.rs": {
@@ -738,9 +738,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-app/src/state.rs": {
-    "mtime": 1795299980.7457392,
-    "seen": 1795300114.1515718,
-    "ast_hash": "804896a1b3419d3fb6b49627f850c92d",
+    "mtime": 1795301237.0610986,
+    "seen": 1795301248.2729328,
+    "ast_hash": "f7c88538c9383ad57bef4d20792302b3",
     "semantic_hash": ""
   },
   "crates/jcs-app/src/terminal.rs": {
@@ -768,9 +768,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/mod.rs": {
-    "mtime": 1795300303.0948813,
-    "seen": 1795300336.44238,
-    "ast_hash": "7ede9fac50b926bff63bac21d4973382",
+    "mtime": 1795301144.0555441,
+    "seen": 1795301248.2730222,
+    "ast_hash": "f08a36b304ac22a2f8e7b7040266cbbc",
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/policy.rs": {
@@ -798,9 +798,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-client/src/lib.rs": {
-    "mtime": 1795299877.2797806,
-    "seen": 1795300114.1517813,
-    "ast_hash": "3f25e638b074dee6fdbac2c14e4855d7",
+    "mtime": 1795300971.076547,
+    "seen": 1795301248.2731411,
+    "ast_hash": "4bc67ca1dab3dbe54fb2ff6c14921eb7",
     "semantic_hash": ""
   },
   "crates/jcs-core/src/boundaries.rs": {
@@ -888,15 +888,15 @@
     "semantic_hash": ""
   },
   "docs/HANDOFF.md": {
-    "mtime": 1795300335.295462,
-    "seen": 1795300336.4436972,
-    "ast_hash": "e44704de7bcfaad0917f2e88cae6de2e",
+    "mtime": 1795301219.561309,
+    "seen": 1795301248.2742672,
+    "ast_hash": "67c1e6eae6a6fc92cfcdbf40076754a1",
     "semantic_hash": ""
   },
   "docs/RUNBOOK.md": {
-    "mtime": 1795300335.2955537,
-    "seen": 1795300336.4437075,
-    "ast_hash": "74182c90b17d872a1c8027d81ed2e963",
+    "mtime": 1795301219.56139,
+    "seen": 1795301248.2742686,
+    "ast_hash": "3bb92f8459beb049b62cd2f7553348e4",
     "semantic_hash": ""
   },
   "docs/adr/0010-desktop-app-egui.md": {
@@ -924,9 +924,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/trace.rs": {
-    "mtime": 1795298481.2816994,
-    "seen": 1795298846.683892,
-    "ast_hash": "597726c14a15aeb2e77e6e85dceb2dfe",
+    "mtime": 1795300916.3527265,
+    "seen": 1795301248.2730608,
+    "ast_hash": "8051d2e9abd72e45b3ea416d19968de1",
     "semantic_hash": ""
   },
   "crates/jcs-core/src/claims.rs": {
@@ -984,9 +984,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/orchestrator.rs": {
-    "mtime": 1795300309.8501806,
-    "seen": 1795300336.4423814,
-    "ast_hash": "aa4c70a4e40c38ac86ee992289d92151",
+    "mtime": 1795301195.4851358,
+    "seen": 1795301248.2730231,
+    "ast_hash": "5db786ca908d308142025885db70b887",
     "semantic_hash": ""
   },
   "crates/jcs-store/src/orchestrator.rs": {
@@ -999,6 +999,24 @@
     "mtime": 1795300335.2951045,
     "seen": 1795300336.4438553,
     "ast_hash": "fd238f5211de8e383bd2414741dd9b7e",
+    "semantic_hash": ""
+  },
+  "crates/jcs-app/src/ui/markdown.rs": {
+    "mtime": 1795301086.5991197,
+    "seen": 1795301248.2730086,
+    "ast_hash": "d5f3e9a6389b0aaa28dfd1fe8c704111",
+    "semantic_hash": ""
+  },
+  "crates/jcs-daemon/src/orchestrator.rs": {
+    "mtime": 1795301150.4659698,
+    "seen": 1795301248.2733204,
+    "ast_hash": "01d4bf78f805e0fb95c66da69a872791",
+    "semantic_hash": ""
+  },
+  "docs/adr/0016-markdown-and-streaming.md": {
+    "mtime": 1795301219.5340703,
+    "seen": 1795301248.2744248,
+    "ast_hash": "74e19ad9e06ed14a3a201efe34bdea43",
     "semantic_hash": ""
   }
 }
