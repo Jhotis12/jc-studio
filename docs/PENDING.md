@@ -27,6 +27,7 @@ Cada entrada tiene una condición de salida; sin ella, no es una decisión, es u
 |---|---|---|
 | Modo `spawn` de `opencode serve` (proceso propio por instancia) | No implementado; el modo `attach` es el correcto en esta máquina | Solo si hace falta aislamiento real por proyecto (Fase 7) |
 | Aprobación por *ruleset* al crear la sesión | No enviado: la precedencia de reglas no está verificada. Los packs ya declaran reglas y gates, pero no compilan todavía a `permission` de OpenCode | Fase 3, con una sonda que ejercite una herramienta real |
+| Renderizar `opencode.json` y `.opencode/agents/*.md` | No implementado a propósito: el esquema de configuración de OpenCode no está verificado contra una instancia, y generar config inválida es peor que no generarla. Hoy se renderizan `AGENTS.md`, `.jcs/gates.toml` y el lock | Fase 3, con una sonda que valide el esquema |
 | Merge automático de la rama de tarea | No implementado: el commit queda en su rama y el merge es manual | Fase 3 (merge queue) |
 | TUI `ratatui` | No implementada: el CLI cubre el ciclo completo | Fase 3 |
 | Descomposición de objetivos en DAG de tareas | No implementada: un objetivo = una tarea | Fase 3 |
@@ -42,3 +43,6 @@ Cada entrada tiene una condición de salida; sin ella, no es una decisión, es u
   un agente, pero es una dependencia de entorno (git ≥ 2.30).
 - **Solo Unix:** el socket UDS y los permisos `0600` no existen igual en Windows.
 - **Un solo daemon por base de datos:** garantizado por lockfile; no hay modo multi-usuario.
+- **Gates en secuencia:** más lentos que en paralelo, pero atribuibles y deterministas.
+- **Parsers:** `cargo`, `node`, `coverage` y genérico. `pytest` cae en genérico hasta que
+  haya un fixture que justifique un parser propio.
