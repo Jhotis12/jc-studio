@@ -53,6 +53,10 @@ impl OpenFile {
 pub struct CodeState {
     pub root: Option<PathBuf>,
     pub root_label: String,
+    /// Task whose worktree the explorer shows. `None` follows the selected task, then the
+    /// most recently updated worktree, so opening Código never lands on an empty root by
+    /// accident.
+    pub task: Option<String>,
     pub prefer_worktree: bool,
     pub tree: Vec<FileNode>,
     pub open: Option<OpenFile>,
@@ -74,6 +78,7 @@ impl Default for CodeState {
         Self {
             root: None,
             root_label: String::new(),
+            task: None,
             prefer_worktree: true,
             tree: Vec::new(),
             open: None,
@@ -394,16 +399,42 @@ pub fn panel(ui: &mut egui::Ui, app: &mut Studio) {
 fn desired_root(app: &Studio) -> Option<(PathBuf, String)> {
     let project = app.state.project()?;
     if app.code.prefer_worktree {
-        if let Some(task) = app.state.selected_task() {
-            if let Some(worktree) = &task.worktree {
-                // A merged task's worktree is deleted on purpose. Falling back to the
-                // project root beats showing an empty tree with no explanation.
-                if Path::new(worktree).exists() {
-                    return Some((
-                        PathBuf::from(worktree),
+        let worktree = |task: &jcs_proto::TaskView| {
+            task.worktree
+                .as_ref()
+                .filter(|path| Path::new(path).exists())
+                .map(|path| {
+                    (
+                        PathBuf::from(path),
                         format!("worktree · {} · {}", short(&task.id), task.status),
-                    ));
-                }
+                    )
+                })
+        };
+
+        // An explicit choice wins; otherwise follow the task selected in the chat.
+        if let Some(task) = app.code.task.as_deref().and_then(|id| app.state.task(id)) {
+            if let Some(root) = worktree(task) {
+                return Some(root);
+            }
+        }
+        if let Some(root) = app.state.selected_task().and_then(worktree) {
+            return Some(root);
+        }
+        // A pending task has no worktree and its merged predecessor's was deleted. Show
+        // the most recent worktree that still exists instead of an empty project tree.
+        if let Some(task) = app
+            .state
+            .tasks
+            .iter()
+            .filter(|task| {
+                task.worktree
+                    .as_ref()
+                    .is_some_and(|path| Path::new(path).exists())
+            })
+            .max_by(|left, right| left.updated_at.cmp(&right.updated_at))
+        {
+            if let Some(root) = worktree(task) {
+                return Some(root);
             }
         }
     }
@@ -441,49 +472,71 @@ fn explorer(ui: &mut egui::Ui, app: &mut Studio) {
             )
         })
         .collect();
-    let selected_label = app
-        .state
-        .selected_task()
+    // The explorer's subject is the root it is actually showing, not whichever task the
+    // chat selected. They usually match, but a pending task has no worktree.
+    let current_task_id = app.code.root.as_ref().and_then(|root| {
+        app.state
+            .tasks
+            .iter()
+            .find(|task| {
+                task.worktree
+                    .as_ref()
+                    .is_some_and(|worktree| Path::new(worktree) == root)
+            })
+            .map(|task| task.id.clone())
+    });
+    let selected_label = current_task_id
+        .as_ref()
+        .and_then(|id| app.state.task(id))
         .map(|task| crate::ui::truncate(&task.title, 30).to_string())
         .unwrap_or_else(|| "raíz del proyecto".to_string());
     ui.horizontal(|ui| {
         ui.label(RichText::new("Ver").small().weak());
         egui::ComboBox::from_id_salt("code-task")
             .selected_text(selected_label)
-            .width(180.0)
+            .width(190.0)
             .show_ui(ui, |ui| {
                 if ui
-                    .selectable_label(app.state.selected_task.is_none(), "raíz del proyecto")
+                    .selectable_label(
+                        app.code.root.as_ref()
+                            == app
+                                .state
+                                .project()
+                                .map(|project| PathBuf::from(&project.root_path))
+                                .as_ref(),
+                        "raíz del proyecto",
+                    )
                     .clicked()
                 {
-                    app.state.selected_task = None;
+                    app.code.prefer_worktree = false;
+                    app.code.task = None;
+                    app.code.pending_diff = false;
                 }
                 for (id, title) in &worktrees {
                     if ui
-                        .selectable_label(
-                            app.state.selected_task.as_deref() == Some(id.as_str()),
-                            title,
-                        )
+                        .selectable_label(current_task_id.as_deref() == Some(id.as_str()), title)
                         .clicked()
                     {
-                        app.select_task(id.clone());
+                        app.code.prefer_worktree = true;
+                        app.code.task = Some(id.clone());
+                        app.code.pending_diff = false;
                     }
                 }
             });
     });
 
-    let selected = app.state.selected_task().cloned();
-    let missing_worktree = selected.as_ref().is_some_and(|task| {
+    let selected_without_worktree = app.state.selected_task().is_some_and(|task| {
         task.worktree
             .as_ref()
-            .is_some_and(|path| !Path::new(path).exists())
+            .is_none_or(|path| !Path::new(path).exists())
     });
-    if missing_worktree {
+    if app.code.prefer_worktree && selected_without_worktree {
         ui.label(
-            RichText::new(
-                "El worktree de esa tarea ya se integró y se eliminó; se muestra la raíz \
-                 del proyecto.",
-            )
+            RichText::new(if worktrees.is_empty() {
+                "Ninguna tarea tiene un worktree activo; se muestra la raíz del proyecto."
+            } else {
+                "La tarea seleccionada no tiene worktree; se muestra el más reciente."
+            })
             .small()
             .color(Color32::from_rgb(230, 170, 90)),
         );
@@ -491,17 +544,6 @@ fn explorer(ui: &mut egui::Ui, app: &mut Studio) {
     ui.add_enabled_ui(!worktrees.is_empty(), |ui| {
         ui.checkbox(&mut app.code.prefer_worktree, "ver worktree de la tarea");
     });
-    if selected.is_some()
-        && selected
-            .as_ref()
-            .is_some_and(|task| task.worktree.is_none())
-    {
-        ui.label(
-            RichText::new("Esta tarea aún no tiene worktree.")
-                .small()
-                .weak(),
-        );
-    }
 
     ui.add_space(4.0);
     ui.add(

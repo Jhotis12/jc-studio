@@ -356,7 +356,8 @@ impl Studio {
     /// Opens the Code tab on a task's worktree with its diff already loaded.
     pub fn show_task_changes(&mut self, goal: String, task: String) {
         self.select_goal(goal);
-        self.select_task(task);
+        self.select_task(task.clone());
+        self.code.task = Some(task);
         self.code.prefer_worktree = true;
         self.code.pending_diff = true;
         self.tab = Tab::Code;

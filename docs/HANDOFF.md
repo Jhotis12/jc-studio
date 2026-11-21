@@ -214,8 +214,9 @@ consola. La decisión y las alternativas están en la
   a partir de dependencias, claims y capacidad; el daemon sigue siendo la autoridad.
 - Editor: pestaña «Código» con árbol, edición, guardado, archivos nuevos, diff del worktree
   contra la base y protección de cambios sin guardar. La pestaña abre por defecto el worktree
-  de la tarea seleccionada; un selector permite volver a la raíz y «Ver cambios» (en el
-  detalle) carga el diff. Si el worktree ya se integró y se eliminó, cae a la raíz con aviso.
+  de la tarea seleccionada; si esa tarea aún no tiene, muestra el más reciente. Un selector
+  permite volver a la raíz y «Ver cambios» (en el detalle) carga el diff. Si el worktree ya se
+  integró y se eliminó, cae al más reciente con aviso.
   Es edición local, no orquestación: el daemon no participa en leer/escribir archivos.
 - Actividad: `State::task_activity` guarda la última acción por tarea fuera de la consola
   acotada (razonando, escribiendo, herramienta, gate, commit, merge) y el tablero/detalle

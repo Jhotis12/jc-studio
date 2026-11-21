@@ -134,7 +134,8 @@ El razonamiento y las alternativas están en la [ADR 0010](adr/0010-desktop-app-
       `session.tool.success`) y el chat muestra nombre, entrada y salida; la tarjeta del
       objetivo y el detalle muestran «Ahora: razonando / usando una herramienta / …» con la
       edad de la última actividad. La pestaña Código abre el worktree de la tarea
-      seleccionada y añade «Ver cambios» con el diff ya cargado. El evento de integración
+      seleccionada, o el más reciente si esa tarea aún no tiene, y añade «Ver cambios» con el
+      diff ya cargado. El evento de integración
       solo se emite cuando la rama queda estrictamente detrás de la base (antes: 531 eventos
       idénticos en nueve minutos).
 - [x] 8.19 Markdown renderizado en las respuestas y streaming real del Orquestador:

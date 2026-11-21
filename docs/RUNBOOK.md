@@ -85,10 +85,11 @@ Para subir la concurrencia: **Ajustes → Concurrencia máxima → Guardar → R
 
 ### Orquestador
 
-La pestaña **Código** abre el worktree de la tarea seleccionada. Si ves la raíz del proyecto y
-esperabas los cambios del agente, elige la tarea en el selector «Ver» o pulsa **Ver cambios**
-en su tarjeta del detalle. Un worktree de una tarea ya integrada se elimina; en ese caso la
-pestaña vuelve a la raíz y lo explica.
+La pestaña **Código** abre el worktree de la tarea seleccionada; si esa tarea aún no tiene
+worktree, muestra el más reciente que siga existiendo. Si ves la raíz del proyecto y esperabas
+los cambios del agente, elige la tarea en el selector «Ver» o pulsa **Ver cambios** en su
+tarjeta del detalle. Un worktree de una tarea ya integrada se elimina; la pestaña lo explica y
+cae al worktree más reciente.
 
 El chat del Orquestador se escribe **en vivo** si el modelo emite deltas: verás el
 razonamiento y el texto por chunks (cada ~250 ms). Si el proveedor bufferiza la respuesta, verás
