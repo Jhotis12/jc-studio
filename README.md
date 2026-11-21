@@ -18,13 +18,34 @@ Telegram      ─┘                            │
 
 ## Estado
 
-Fase 0 (decisiones + esqueleto) y Fase 1 (walking skeleton vertical) en progreso.
-El alcance de v1 está congelado en `docs/adr/`. Nada de UI web, PRs automáticos ni Windows nativo.
+**Fase 0 (decisiones + esqueleto) y Fase 1 (walking skeleton vertical): completas.**
+
+Funciona de punta a punta: daemon durable → worktree aislado → sesión de agente real →
+stream de eventos → gates → commit convencional, con recuperación tras crash y un
+historial de eventos reanudable.
+
+Lo que **no** hay todavía (fases 2–7): compilador de políticas y packs, descomposición de
+objetivos en DAG, TUI ratatui, grafo de código/RAG, Telegram, merge queue.
+
+## Cómo termina un run
+
+Un run termina por el primero de estos hechos:
+
+| Situación | Resultado |
+|---|---|
+| El backend reporta `outcome: succeeded` | gates → commit → tarea `succeeded` |
+| El backend reporta `failed` / `interrupted` | tarea `failed`, run `failed` |
+| El agente hace una **pregunta** (form) | form cancelado, tarea y objetivo `blocked`, con la pregunta en el log |
+| Se agota `JCS_RUN_TIMEOUT_SECS` (900 s por defecto) | run `failed`, motivo explícito |
+| `jcs abort <run>` | tarea y objetivo `cancelled` |
+
+Una pregunta **no** deja la sesión colgada: se cancela el form y la tarea se aparca como
+`blocked` para que un humano decida. Un `blocked` visible es mejor que un `running` eterno.
 
 ## Requisitos
 
 - Linux o macOS (Unix domain socket).
-- Rust 1.85+ (pinneado en `rust-toolchain.toml`).
+- Rust 1.89+ (pinneado en `rust-toolchain.toml`).
 - `git` 2.30+.
 - OpenCode 2.3.2+ con un servicio en ejecución (`opencode service status`).
 - SQLite 3.35+ (embebido vía `sqlx`; el binario `sqlite3` solo hace falta para inspección).
@@ -41,19 +62,46 @@ cargo build --release
 ## Uso
 
 ```bash
-# arranca el daemon (o usa systemd --user, ver contrib/)
+# arranca el daemon (o instala contrib/jcsd.service como servicio de usuario)
 jcsd &
 
-# registra un proyecto (debe ser un repo git)
+# registra un proyecto (debe ser un repo git con al menos un commit)
 jcs project add ~/code/mi-servicio --name servicio
 
 # lanza un objetivo: crea worktree, sesión de agente, gates y commit
 jcs ask servicio "añade validación de email en el endpoint de registro"
 
-# estado y stream
+# el primer término se toma como proyecto si coincide con uno registrado;
+# usa -p para desambiguar
+jcs ask -p servicio "otra cosa"
+
+# estado, historial y detalle
 jcs status
+jcs runs <run-id>
+jcs logs --limit 30
 jcs logs --follow
+
+# abortar
+jcs abort <run-id>
 ```
+
+El run deja un **commit en una rama aislada** (`jcs/<objetivo>/<sufijo>`) dentro de un
+worktree propio. No toca tu rama de trabajo. El merge automático llega en la Fase 3;
+hasta entonces, revisa el diff y mergea tú:
+
+```bash
+git -C ~/code/mi-servicio worktree list
+git -C ~/code/mi-servicio diff main...jcs/<rama>
+```
+
+## Seguridad por defecto
+
+- El agente trabaja **solo** dentro del worktree de la tarea (`location.directory`).
+- **Ejecutar shell está denegado** salvo `JCS_ALLOW_SHELL=1`. La verificación la hace el
+  runner de gates, no el proceso que se está verificando.
+- Las operaciones destructivas de git no existen en la API (`force-push`, `reset --hard`).
+- El socket es `0600` dentro de un directorio `0700`; no hay puerto abierto.
+- Las credenciales de OpenCode se leen en memoria, se redactan en `Debug` y nunca se loguean.
 
 ## Arquitectura
 
