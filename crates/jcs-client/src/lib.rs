@@ -88,6 +88,31 @@ impl Client {
         self.get("/catalog/models").await
     }
 
+    pub async fn orchestrator_messages(
+        &self,
+        project: &str,
+    ) -> Result<Vec<jcs_proto::OrchestratorMessage>> {
+        self.get(&format!("/orchestrator?project={}", encode(project)))
+            .await
+    }
+
+    pub async fn orchestrator_send(
+        &self,
+        project: &str,
+        prompt: &str,
+    ) -> Result<Vec<jcs_proto::OrchestratorMessage>> {
+        let request = jcs_proto::OrchestratorChatRequest {
+            project: project.to_string(),
+            prompt: prompt.to_string(),
+        };
+        self.post("/orchestrator", &request).await
+    }
+
+    pub async fn orchestrator_reset(&self, project: &str) -> Result<jcs_proto::OkResponse> {
+        self.delete(&format!("/orchestrator?project={}", encode(project)))
+            .await
+    }
+
     pub async fn skills(&self, project: &str) -> Result<Vec<jcs_proto::SkillCatalogEntry>> {
         self.get(&format!("/catalog/skills?project={}", encode(project)))
             .await

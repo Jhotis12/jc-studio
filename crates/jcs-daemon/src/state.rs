@@ -67,6 +67,8 @@ pub struct AppState {
     pub runtime: Arc<RuntimeSettings>,
     /// Secrets, kept out of the database and out of the API.
     pub secrets: Arc<Secrets>,
+    /// Serializes orchestrator turns so two messages cannot interleave in one session.
+    pub orchestrator_guard: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl AppState {
@@ -93,6 +95,7 @@ impl AppState {
             permits,
             runtime,
             secrets,
+            orchestrator_guard: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 

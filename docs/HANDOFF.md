@@ -234,6 +234,11 @@ consola. La decisión y las alternativas están en la
 - Iteración: `tasks.instructions` (migración 0007) guarda la descripción del plan y el
   feedback. `POST /tasks/{id}/iterate` reintenta failed/blocked con instrucciones o crea una
   tarea dependiente para una succeeded. `merge-retry` limpia `merge_error`.
+- Orquestador: chat persistente por proyecto (`orchestrator_messages`/`orchestrator_sessions`,
+  migración 0009), pestaña propia, prompt de rol sin modificar archivos. `POST /ask` rechaza
+  saludos exactos (`not_an_objective`) y el planificador devuelve `{"tasks":[]}` para
+  conversaciones; un plan vacío bloquea el goal sin lanzar agentes. El chat del Orquestador
+  no es la sesión del planificador de cada goal.
 - Coste: `runs` guarda el modelo y el precio por millón (migración 0008). Si OpenCode reporta
   `cost=0` pero hay tokens, se calcula desde el catálogo; un backfill al arrancar corrige los
   runs antiguos. El total actual cubre runs de tareas; planificador y revisor aún no.
@@ -274,8 +279,11 @@ consola. La decisión y las alternativas están en la
   logs, errores ni respuestas.
 - OpenCode puede devolver `cost: 0` con tokens > 0 (suscripción/créditos). No confiar en ese
   0: usar el precio del catálogo por millón y los tokens, y dejar los modelos gratuitos en 0.
-- El coste del planificador y del revisor no está asociado a un run de tarea; hoy no entra en
-  el total. Está anotado como pendiente.
+- El coste del planificador, del revisor y del chat del Orquestador no está asociado a un run
+  de tarea; hoy no entra en el total. Está anotado como pendiente.
+- «Hola» en el compositor creó 4 tareas leyendo OpenSpec: el planificador no distingue una
+  conversación de un objetivo. Guard exacto + plan vacío + chat separado, y no dar por hecho
+  que el modelo respeta el prompt sin refuerzo.
 
 ## Entorno
 

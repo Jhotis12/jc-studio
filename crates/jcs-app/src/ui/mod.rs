@@ -10,6 +10,7 @@ pub mod dag;
 pub mod details;
 pub mod extensions;
 pub mod memory;
+pub mod orchestrator;
 pub mod policy;
 pub mod settings;
 pub mod system;
@@ -254,6 +255,7 @@ fn central(context: &egui::Context, app: &mut Studio, show_projects: bool) {
                     });
                 ui.separator();
             }
+            ui.selectable_value(&mut app.tab, Tab::Orchestrator, "Orquestador");
             ui.selectable_value(&mut app.tab, Tab::Goals, "Objetivos");
             ui.selectable_value(&mut app.tab, Tab::Code, "Código");
             if !app.wide {
@@ -294,6 +296,7 @@ fn central(context: &egui::Context, app: &mut Studio, show_projects: bool) {
         ui.separator();
 
         match app.tab {
+            Tab::Orchestrator => orchestrator::panel(ui, app),
             Tab::Goals => board::goals(ui, app),
             Tab::Code => code::panel(ui, app),
             Tab::Details => details::goal(ui, app),

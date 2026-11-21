@@ -252,6 +252,8 @@ El cliente principal es una **app de escritorio instalable** (egui), orientada a
 con terminales embebidas. El daemon sigue siendo un servicio de usuario; la app se conecta
 a él por el mismo socket que el CLI.
 
+- Orquestador: chat persistente por proyecto para preguntar y planificar sin ejecutar; los
+  saludos no se convierten en objetivos.
 - Proyectos y objetivos: compositor, varios objetivos a la vez, reparto justo de capacidad.
 - Detalle por objetivo: **etapas reales por tarea** (sin porcentajes inventados), grafo del
   plan, ejecuciones, gates y reanudación. Las tareas que esperan explican por qué

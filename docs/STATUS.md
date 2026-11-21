@@ -20,9 +20,9 @@ Si llegas aquí después de una compactación de contexto, el punto de entrada e
 | 5 — Revisión de código y seguridad | 6 | **completa** | 100 % |
 | 6 — Telegram | 4 | operativa | 85 % |
 | 7 — Hardening y distribución | 10 | casi completa (Linux empaquetado) | 80 % |
-| 8 — App de escritorio (egui) | 19 | funcional; faltan chat interactivo y PTY en daemon | 92 % |
+| 8 — App de escritorio (egui) | 19 | funcional; faltan chat interactivo y PTY en daemon | 94 % |
 
-- **Producto completo (backend + app): ~93 %.**
+- **Producto completo (backend + app): ~94 %.**
 - **MVP (fases 0–4): ~99 %.**
 
 El porcentaje mide alcance, no riesgo. La tesis arquitectónica (daemon durable, agente real,
@@ -126,6 +126,10 @@ El razonamiento y las alternativas están en la [ADR 0010](adr/0010-desktop-app-
       hay merges pendientes, el objetivo pasa a `blocked`/`failed` con `goal_stalled` en vez
       de quedarse `running` para siempre. `ensure_integration_branch` ya no escribe un evento
       por tick.
+- [x] 8.17 Chat del Orquestador: sesión persistente por proyecto, historial en SQLite,
+      pestaña propia y guard que rechaza saludos antes de crear un goal. El planificador
+      devuelve un plan vacío para conversaciones y un plan vacío bloquea el goal sin lanzar
+      agentes. Prueba real: «Hola, ¿de qué trata este repositorio?» respondió y no creó tareas.
 - [x] 8.16 Coste real: OpenCode puede reportar `cost: 0` aunque haya tokens. El daemon
       guarda el precio del catálogo por run (migración 0008) y calcula el coste desde los
       tokens cuando el backend reporta 0; un backfill al arrancar corrige los runs antiguos.
@@ -156,7 +160,7 @@ API esté documentada y probada.
 
 | Comando | Qué demuestra |
 |---|---|
-| `cargo nextest run --workspace` | **331 tests** unitarios, de propiedad y de integración |
+| `cargo nextest run --workspace` | **333 tests** unitarios, de propiedad y de integración |
 | `just e2e` | objetivo → worktree → agente → gates → commit |
 | `just e2e-policy` | gate que exige un token: prueba el bucle de reparación |
 | `just e2e-plan` | objetivo → plan → DAG → tareas → entregables |

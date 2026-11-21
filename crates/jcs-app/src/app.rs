@@ -22,6 +22,7 @@ pub enum ConsoleTab {
 /// Which section of the project workspace is open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tab {
+    Orchestrator,
     #[default]
     Goals,
     Code,
@@ -229,6 +230,8 @@ pub struct Studio {
     pub show_finished_goals: bool,
     pub iteration_for: Option<String>,
     pub iteration_feedback: String,
+    pub orchestrator_input: String,
+    pub orchestrator_loaded_for: Option<String>,
     /// Terminal sessions, one per open tab.
     pub terminals: crate::terminal::Terminals,
     /// File tree, editor and task diff.
@@ -273,6 +276,8 @@ impl Studio {
             show_finished_goals: true,
             iteration_for: None,
             iteration_feedback: String::new(),
+            orchestrator_input: String::new(),
+            orchestrator_loaded_for: None,
             terminals: crate::terminal::Terminals::default(),
             code: crate::ui::code::CodeState::default(),
         }
@@ -280,10 +285,34 @@ impl Studio {
 
     pub fn select_project(&mut self, id: String) {
         self.state.selected_project = Some(id);
+        self.orchestrator_loaded_for = None;
         self.state.selected_goal = None;
         self.state.selected_task = None;
         self.state.auto_selected = false;
         self.state.run_detail = None;
+    }
+
+    /// Sends a conversational turn. The user's message appears immediately; the reply
+    /// arrives through the daemon channel and replaces the transcript.
+    pub fn send_orchestrator(&mut self) {
+        let prompt = self.orchestrator_input.trim().to_string();
+        if prompt.is_empty() || self.state.orchestrator_busy {
+            return;
+        }
+        let Some(project) = self.state.project().map(|project| project.name.clone()) else {
+            return;
+        };
+        self.state
+            .orchestrator
+            .push(jcs_proto::OrchestratorMessage {
+                role: "user".to_string(),
+                text: prompt.clone(),
+                created_at: jiff::Timestamp::now(),
+            });
+        self.state.orchestrator_busy = true;
+        self.orchestrator_input.clear();
+        self.daemon
+            .send(Command::SendOrchestrator { project, prompt });
     }
 
     pub fn select_goal(&mut self, id: String) {

@@ -87,6 +87,11 @@ async fn plan_in_session(
         };
 
         match serde_json::from_str::<Plan>(json) {
+            Ok(plan) if plan.tasks.is_empty() => {
+                return Err(anyhow!(
+                    "the message is not a concrete objective; describe the change you want"
+                ));
+            }
             Ok(plan) => match plan.validate() {
                 Ok(()) => return Ok(plan),
                 Err(error) => {

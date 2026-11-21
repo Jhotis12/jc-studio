@@ -83,6 +83,15 @@ al promocionar, se rebasa y se re-verifica; un conflicto bloquea el objetivo, no
 
 Para subir la concurrencia: **Ajustes → Concurrencia máxima → Guardar → Reiniciar jcsd**.
 
+### Orquestador
+
+La pestaña **Orquestador** es un chat persistente con el agente que recibe preguntas del
+proyecto. Sirve para explorar, pedir contexto o un plan; **no ejecuta trabajo ni crea tareas**
+por sí mismo. Cuando tengas claro el cambio, descríbelo en **Objetivos**. El compositor
+rechaza saludos sueltos («Hola») para que no se conviertan en un plan. El historial y la
+sesión se guardan en la base; «Nueva conversación» los borra. El consumo de este chat todavía
+no se suma al total de runs.
+
 ### Progreso y objetivos atascados
 
 El progreso por tarea se muestra por **etapas** (en cola, agente trabajando, verificando,

@@ -8,9 +8,9 @@ use std::collections::VecDeque;
 use jcs_core::Event;
 use jcs_proto::{
     GateRunResponse, GoalActionResponse, HealthResponse, McpServerEntry, MemoryIndexResponse,
-    MemorySearchResponse, MemoryStatsView, ModelCatalogEntry, PolicyView, ProjectView,
-    RenderPolicyResponse, RunDetailResponse, SettingsView, SkillCatalogEntry, StatusResponse,
-    TaskView, Totals,
+    MemorySearchResponse, MemoryStatsView, ModelCatalogEntry, OrchestratorMessage, PolicyView,
+    ProjectView, RenderPolicyResponse, RunDetailResponse, SettingsView, SkillCatalogEntry,
+    StatusResponse, TaskView, Totals,
 };
 
 /// How the window sees the daemon right now.
@@ -161,6 +161,8 @@ pub struct State {
     pub models: Vec<ModelCatalogEntry>,
     pub skills: Vec<SkillCatalogEntry>,
     pub mcp: Vec<McpServerEntry>,
+    pub orchestrator: Vec<OrchestratorMessage>,
+    pub orchestrator_busy: bool,
     pub notice: Option<Notice>,
 }
 
@@ -223,6 +225,17 @@ impl State {
             Update::Settings(settings) => self.settings = Some(settings),
             Update::Models(models) => self.models = models,
             Update::Skills(skills) => self.skills = skills,
+            Update::Orchestrator(messages) => {
+                self.orchestrator = messages;
+                self.orchestrator_busy = false;
+            }
+            Update::OrchestratorFailed(message) => {
+                self.orchestrator_busy = false;
+                self.notice = Some(Notice {
+                    message: format!("el orquestador falló: {message}"),
+                    error: true,
+                });
+            }
             Update::TaskAction(action) => {
                 if let Some(id) = &action.created_task_id {
                     self.selected_task = Some(id.clone());

@@ -71,6 +71,12 @@ fn composer(ui: &mut egui::Ui, app: &mut Studio) {
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label(RichText::new("Nuevo objetivo").strong());
+            if ui
+                .small_button("¿Solo conversar? Usa el Orquestador")
+                .clicked()
+            {
+                app.tab = crate::app::Tab::Orchestrator;
+            }
             if !app.state.is_connected() {
                 ui.colored_label(
                     Color32::from_rgb(230, 170, 90),

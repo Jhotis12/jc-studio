@@ -22,11 +22,11 @@ use jcs_core::{
 use jcs_proto::{
     AddProjectRequest, AskRequest, AskResponse, ErrorBody, GateOutcomeView, GateRunRequest,
     GateRunResponse, GateView, GoalView, HealthResponse, McpAddRequest, McpServerEntry,
-    ModelCatalogEntry, PackCatalogEntry, PolicyGateView, PolicyPackView, PolicyRuleView,
-    PolicyView, ProjectListResponse, ProjectResponse, ProjectView, RenderPolicyRequest,
-    RenderPolicyResponse, RenderedFileView, RunDetailResponse, RunView, SettingsPatch,
-    SettingsView, SkillCatalogEntry, StatusResponse, TaskActionResponse, TaskIterateRequest,
-    TaskView, Totals, PROTOCOL_HEADER, PROTOCOL_VERSION,
+    ModelCatalogEntry, OrchestratorChatRequest, OrchestratorMessage, PackCatalogEntry,
+    PolicyGateView, PolicyPackView, PolicyRuleView, PolicyView, ProjectListResponse,
+    ProjectResponse, ProjectView, RenderPolicyRequest, RenderPolicyResponse, RenderedFileView,
+    RunDetailResponse, RunView, SettingsPatch, SettingsView, SkillCatalogEntry, StatusResponse,
+    TaskActionResponse, TaskIterateRequest, TaskView, Totals, PROTOCOL_HEADER, PROTOCOL_VERSION,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -61,6 +61,12 @@ pub fn router(state: AppState) -> Router {
         .route("/gates/run", post(run_gates))
         .route("/metrics", get(metrics))
         .route("/settings", get(settings).put(update_settings))
+        .route(
+            "/orchestrator",
+            get(orchestrator_history)
+                .post(orchestrator_chat)
+                .delete(orchestrator_reset),
+        )
         .route("/catalog/models", get(catalog_models))
         .route("/catalog/skills", get(catalog_skills))
         .route("/catalog/mcp", get(catalog_mcp).post(add_mcp_server))
@@ -366,6 +372,12 @@ async fn ask(
     State(state): State<AppState>,
     Json(request): Json<AskRequest>,
 ) -> ApiResult<Json<AskResponse>> {
+    if is_conversational(&request.prompt) {
+        return Err(ApiError::bad_request(
+            "not_an_objective",
+            "that looks like a conversation, not an objective; use the Orchestrator chat,              or describe a concrete change to execute",
+        ));
+    }
     let project = resolve_project(&state, &request.project).await?;
 
     // Fail before creating state if the repository is not usable.
@@ -809,6 +821,33 @@ struct ProjectQuery {
     project: String,
 }
 
+/// Exact greetings only. A message like "hola, arregla el login" stays a valid objective.
+fn is_conversational(prompt: &str) -> bool {
+    let normalized: String = prompt
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter(|character| character.is_alphanumeric() || character.is_whitespace())
+        .collect();
+    let normalized = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+    matches!(
+        normalized.as_str(),
+        "hola"
+            | "buenas"
+            | "buenos dias"
+            | "buenas tardes"
+            | "buenas noches"
+            | "hey"
+            | "hi"
+            | "hello"
+            | "que tal"
+            | "como estas"
+            | "gracias"
+            | "ok"
+            | "vale"
+    )
+}
+
 async fn resolve_project(state: &AppState, reference: &str) -> ApiResult<Project> {
     state
         .store
@@ -1103,6 +1142,136 @@ async fn catalog_models(State(state): State<AppState>) -> ApiResult<Json<Vec<Mod
             })
             .collect(),
     ))
+}
+
+/// Conversation with the project-level orchestrator, oldest first.
+async fn orchestrator_history(
+    State(state): State<AppState>,
+    Query(query): Query<ProjectQuery>,
+) -> ApiResult<Json<Vec<OrchestratorMessage>>> {
+    let project = resolve_project(&state, &query.project).await?;
+    let messages = state.store.orchestrator_messages(&project.id, 200).await?;
+    Ok(Json(
+        messages
+            .into_iter()
+            .map(|message| OrchestratorMessage {
+                role: message.role,
+                text: message.text,
+                created_at: message.created_at,
+            })
+            .collect(),
+    ))
+}
+
+/// One conversational turn with the orchestrator. The HTTP call waits for the answer; the
+/// desktop app runs it off the UI thread and shows a spinner.
+async fn orchestrator_chat(
+    State(state): State<AppState>,
+    Json(request): Json<OrchestratorChatRequest>,
+) -> ApiResult<Json<Vec<OrchestratorMessage>>> {
+    let prompt = request.prompt.trim();
+    if prompt.is_empty() {
+        return Err(ApiError::bad_request(
+            "empty_message",
+            "write a message for the orchestrator",
+        ));
+    }
+    let project = resolve_project(&state, &request.project).await?;
+
+    let _guard = state.orchestrator_guard.lock().await;
+    state
+        .store
+        .append_orchestrator_message(&project.id, "user", prompt)
+        .await?;
+
+    let agent = state.agent.get().await?;
+    let mut session_id = state.store.orchestrator_session(&project.id).await?;
+    if let Some(id) = &session_id {
+        if agent.session(id).await.is_err() {
+            // OpenCode restarted or archived the session; start a new one.
+            session_id = None;
+        }
+    }
+    let mut fresh = false;
+    let session_id = match session_id {
+        Some(id) => id,
+        None => {
+            let model = state
+                .planning_model()
+                .or_else(|| state.default_model())
+                .map(|reference| jcs_agent::ModelRef::parse(&reference))
+                .transpose()?;
+            let agent_name = state.planning_agent();
+            let session = agent
+                .create_session(jcs_agent::CreateSession {
+                    title: "orchestrator",
+                    directory: &project.root_path,
+                    model,
+                    agent: agent_name.as_deref(),
+                    permissions: None,
+                })
+                .await
+                .map_err(ApiError::from)?;
+            state
+                .store
+                .set_orchestrator_session(&project.id, &session.id)
+                .await?;
+            fresh = true;
+            session.id
+        }
+    };
+
+    let message = if fresh {
+        format!(
+            "You are the JC Studio orchestrator for the project {name} at {root}.              Talk with the operator, inspect the project when it helps, and answer their              questions. Do not modify files from this chat. When they want work executed,              propose a concrete objective; they will queue it separately.\n\nOperator: {prompt}",
+            name = project.name,
+            root = project.root_path.display(),
+        )
+    } else {
+        prompt.to_string()
+    };
+
+    agent
+        .prompt(&session_id, &message, "queue")
+        .await
+        .map_err(ApiError::from)?;
+    let reply = crate::planner::collect_response(&agent, &session_id)
+        .await
+        .map_err(|error| ApiError::internal(error.to_string()))?;
+    if !reply.trim().is_empty() {
+        state
+            .store
+            .append_orchestrator_message(&project.id, "assistant", reply.trim())
+            .await?;
+    }
+
+    let messages = state.store.orchestrator_messages(&project.id, 200).await?;
+    Ok(Json(
+        messages
+            .into_iter()
+            .map(|message| OrchestratorMessage {
+                role: message.role,
+                text: message.text,
+                created_at: message.created_at,
+            })
+            .collect(),
+    ))
+}
+
+async fn orchestrator_reset(
+    State(state): State<AppState>,
+    Query(query): Query<ProjectQuery>,
+) -> ApiResult<Json<jcs_proto::OkResponse>> {
+    let project = resolve_project(&state, &query.project).await?;
+    if let Some(session_id) = state.store.orchestrator_session(&project.id).await? {
+        if let Ok(agent) = state.agent.get().await {
+            if let Err(error) = agent.interrupt(&session_id).await {
+                tracing::debug!(error = %error, "cannot interrupt the orchestrator session");
+            }
+        }
+    }
+    state.store.clear_orchestrator(&project.id).await?;
+    Ok(Json(jcs_proto::OkResponse { ok: true }))
 }
 
 /// Skills installed for the project, as the backend lists them.
@@ -1887,6 +2056,19 @@ mod tests {
             .await
             .unwrap()
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn a_greeting_is_not_an_objective() {
+        let (status, body) = send(
+            router(test_state().await),
+            "POST",
+            "/ask",
+            Some(r#"{"project":"demo","prompt":"Hola"}"#),
+        )
+        .await;
+        assert_eq!(status, 400, "{body}");
+        assert_eq!(body["code"], "not_an_objective");
     }
 
     #[tokio::test]

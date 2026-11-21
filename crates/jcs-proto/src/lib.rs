@@ -421,6 +421,21 @@ pub struct MemoryStatsView {
     pub semantic_enabled: bool,
 }
 
+/// One message in the project-level orchestrator chat.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrchestratorMessage {
+    pub role: String,
+    pub text: String,
+    pub created_at: Timestamp,
+}
+
+/// Sends a conversational message to the orchestrator.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrchestratorChatRequest {
+    pub project: String,
+    pub prompt: String,
+}
+
 /// A skill registered in the agent backend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillCatalogEntry {

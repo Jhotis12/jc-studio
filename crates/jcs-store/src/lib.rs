@@ -9,6 +9,7 @@ pub mod events;
 pub mod goals;
 pub mod integration;
 pub mod leases;
+pub mod orchestrator;
 pub mod plans;
 pub mod projects;
 pub mod runs;

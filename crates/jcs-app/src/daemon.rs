@@ -116,6 +116,16 @@ pub enum Command {
     RetryMerge {
         task: String,
     },
+    LoadOrchestrator {
+        project: String,
+    },
+    SendOrchestrator {
+        project: String,
+        prompt: String,
+    },
+    ResetOrchestrator {
+        project: String,
+    },
 }
 
 /// Facts the daemon reports back to the interface.
@@ -138,6 +148,8 @@ pub enum Update {
     Skills(Vec<jcs_proto::SkillCatalogEntry>),
     Mcp(Vec<jcs_proto::McpServerEntry>),
     TaskAction(jcs_proto::TaskActionResponse),
+    Orchestrator(Vec<jcs_proto::OrchestratorMessage>),
+    OrchestratorFailed(String),
     GoalAction(GoalActionResponse),
     GoalDeleted(String),
     Project(ProjectView),
@@ -489,6 +501,39 @@ async fn handle(client: &Client, updates: &Sender<Update>, command: Command) {
                 }
             });
         }
+        Command::LoadOrchestrator { project } => {
+            match client.orchestrator_messages(&project).await {
+                Ok(messages) => {
+                    let _ = updates.send(Update::Orchestrator(messages));
+                }
+                Err(error) => notice(updates, error, "no se pudo leer el chat del orquestador"),
+            }
+        }
+        Command::SendOrchestrator { project, prompt } => {
+            // A conversational turn can take a minute; it must not block the event stream.
+            let client = client.clone();
+            let updates = updates.clone();
+            tokio::spawn(async move {
+                match client.orchestrator_send(&project, &prompt).await {
+                    Ok(messages) => {
+                        let _ = updates.send(Update::Orchestrator(messages));
+                    }
+                    Err(error) => {
+                        let _ = updates.send(Update::OrchestratorFailed(error.to_string()));
+                    }
+                }
+            });
+        }
+        Command::ResetOrchestrator { project } => match client.orchestrator_reset(&project).await {
+            Ok(_) => {
+                let _ = updates.send(Update::Orchestrator(Vec::new()));
+                let _ = updates.send(Update::Notice {
+                    message: "conversación del orquestador reiniciada".to_string(),
+                    error: false,
+                });
+            }
+            Err(error) => notice(updates, error, "no se pudo reiniciar la conversación"),
+        },
         Command::LoadSkills { project } => match client.skills(&project).await {
             Ok(skills) => {
                 let _ = updates.send(Update::Skills(skills));
