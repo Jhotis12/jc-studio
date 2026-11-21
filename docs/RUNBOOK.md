@@ -86,8 +86,10 @@ Para subir la concurrencia: **Ajustes → Concurrencia máxima → Guardar → R
 ### Orquestador
 
 La pestaña **Orquestador** es un chat persistente con el agente que recibe preguntas del
-proyecto. Sirve para explorar, pedir contexto o un plan; **no ejecuta trabajo ni crea tareas**
-por sí mismo. Cuando tengas claro el cambio, descríbelo en **Objetivos**. El compositor
+proyecto. Sirve para explorar, pedir contexto o un plan. Cada respuesta tiene **«Crear
+objetivo con esta respuesta»**: abre el texto para editarlo, permite planificar y solo crea
+el objetivo al confirmar. El Orquestador **no crea ni ejecuta trabajo por sí mismo**; cuando
+lo confirmas, el objetivo pasa al tablero y al planificador normal. El compositor
 rechaza saludos sueltos («Hola») para que no se conviertan en un plan. El historial y la
 sesión se guardan en la base; «Nueva conversación» los borra. El consumo de este chat todavía
 no se suma al total de runs.

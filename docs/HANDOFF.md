@@ -235,10 +235,12 @@ consola. La decisión y las alternativas están en la
   feedback. `POST /tasks/{id}/iterate` reintenta failed/blocked con instrucciones o crea una
   tarea dependiente para una succeeded. `merge-retry` limpia `merge_error`.
 - Orquestador: chat persistente por proyecto (`orchestrator_messages`/`orchestrator_sessions`,
-  migración 0009), pestaña propia, prompt de rol sin modificar archivos. `POST /ask` rechaza
-  saludos exactos (`not_an_objective`) y el planificador devuelve `{"tasks":[]}` para
-  conversaciones; un plan vacío bloquea el goal sin lanzar agentes. El chat del Orquestador
-  no es la sesión del planificador de cada goal.
+  migración 0009), pestaña propia, prompt de rol sin modificar archivos. Cada respuesta
+  ofrece «Crear objetivo con esta respuesta»: formulario editable + confirmación; el
+  Orquestador no llama a `/ask` solo. `POST /ask` rechaza saludos exactos
+  (`not_an_objective`) y el planificador devuelve `{"tasks":[]}` para conversaciones; un
+  plan vacío bloquea el goal sin lanzar agentes. El chat del Orquestador no es la sesión del
+  planificador de cada goal.
 - Coste: `runs` guarda el modelo y el precio por millón (migración 0008). Si OpenCode reporta
   `cost=0` pero hay tokens, se calcula desde el catálogo; un backfill al arrancar corrige los
   runs antiguos. El total actual cubre runs de tareas; planificador y revisor aún no.

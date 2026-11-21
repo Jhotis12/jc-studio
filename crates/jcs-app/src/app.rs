@@ -232,6 +232,9 @@ pub struct Studio {
     pub iteration_feedback: String,
     pub orchestrator_input: String,
     pub orchestrator_loaded_for: Option<String>,
+    /// Assistant reply being turned into an objective, with the operator's edits.
+    pub orchestrator_goal: Option<String>,
+    pub orchestrator_goal_plan: bool,
     /// Terminal sessions, one per open tab.
     pub terminals: crate::terminal::Terminals,
     /// File tree, editor and task diff.
@@ -278,6 +281,8 @@ impl Studio {
             iteration_feedback: String::new(),
             orchestrator_input: String::new(),
             orchestrator_loaded_for: None,
+            orchestrator_goal: None,
+            orchestrator_goal_plan: true,
             terminals: crate::terminal::Terminals::default(),
             code: crate::ui::code::CodeState::default(),
         }

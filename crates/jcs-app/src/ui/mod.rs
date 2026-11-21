@@ -24,6 +24,7 @@ use crate::state::{Connection, Notice};
 /// Renders modal windows. Kept separate so the shell never owns dialog state.
 pub fn windows(context: &egui::Context, app: &mut Studio) {
     settings::windows(context, app);
+    orchestrator::windows(context, app);
 }
 
 /// Renders the persistent shell around the workspace.

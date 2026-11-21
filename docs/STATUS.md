@@ -126,6 +126,9 @@ El razonamiento y las alternativas están en la [ADR 0010](adr/0010-desktop-app-
       hay merges pendientes, el objetivo pasa a `blocked`/`failed` con `goal_stalled` en vez
       de quedarse `running` para siempre. `ensure_integration_branch` ya no escribe un evento
       por tick.
+- [x] 8.18 El Orquestador puede **proponer** un objetivo y el operador convertirlo con un
+      botón de confirmación y edición; no crea ni ejecuta nada por su cuenta. El objetivo
+      creado pasa por el planificador normal.
 - [x] 8.17 Chat del Orquestador: sesión persistente por proyecto, historial en SQLite,
       pestaña propia y guard que rechaza saludos antes de crear un goal. El planificador
       devuelve un plan vacío para conversaciones y un plan vacío bloquea el goal sin lanzar

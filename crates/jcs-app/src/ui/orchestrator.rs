@@ -75,7 +75,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut Studio) {
                 );
             }
             for message in &messages {
-                bubble(ui, message);
+                bubble(ui, app, message);
             }
             if app.state.orchestrator_busy {
                 ui.horizontal(|ui| {
@@ -115,7 +115,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut Studio) {
     }
 }
 
-fn bubble(ui: &mut egui::Ui, message: &jcs_proto::OrchestratorMessage) {
+fn bubble(ui: &mut egui::Ui, app: &mut Studio, message: &jcs_proto::OrchestratorMessage) {
     let user = message.role == "user";
     let color = if user {
         Color32::from_rgb(48, 84, 130)
@@ -144,6 +144,89 @@ fn bubble(ui: &mut egui::Ui, message: &jcs_proto::OrchestratorMessage) {
                 );
             });
             ui.label(RichText::new(&message.text).size(13.5));
+            if !user
+                && ui
+                    .small_button("Crear objetivo con esta respuesta")
+                    .clicked()
+            {
+                app.orchestrator_goal = Some(message.text.clone());
+                app.orchestrator_goal_plan = true;
+            }
         });
     ui.add_space(3.0);
+}
+
+/// Review and approve an objective proposed in the chat. Nothing is queued until the
+/// operator presses the button: the same confirmation that stops a greeting from spending.
+pub fn windows(context: &egui::Context, app: &mut Studio) {
+    let Some(text) = app.orchestrator_goal.clone() else {
+        return;
+    };
+    let Some(project) = app.state.project().map(|project| project.name.clone()) else {
+        app.orchestrator_goal = None;
+        return;
+    };
+
+    let mut open = true;
+    let mut prompt = text;
+    let mut plan = app.orchestrator_goal_plan;
+    let mut create = false;
+    let mut cancel = false;
+    egui::Window::new("Crear objetivo desde el Orquestador")
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(true)
+        .default_width(600.0)
+        .show(context, |ui| {
+            ui.label(
+                RichText::new(
+                    "Revisa y edita el objetivo. El orquestador no ejecuta nada: al crearlo \
+                     pasa al tablero de Objetivos y el planificador lo descompone si está \
+                     marcado.",
+                )
+                .weak()
+                .small(),
+            );
+            ui.add_space(4.0);
+            ui.add(
+                egui::TextEdit::multiline(&mut prompt)
+                    .desired_rows(5)
+                    .desired_width(f32::INFINITY),
+            );
+            ui.checkbox(&mut plan, "Planificar en tareas");
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(
+                        !prompt.trim().is_empty(),
+                        egui::Button::new("Crear objetivo"),
+                    )
+                    .clicked()
+                {
+                    create = true;
+                }
+                if ui.button("Cancelar").clicked() {
+                    cancel = true;
+                }
+            });
+        });
+
+    if cancel {
+        open = false;
+    }
+    if create {
+        app.daemon.send(crate::daemon::Command::Ask {
+            project,
+            prompt: prompt.trim().to_string(),
+            model: None,
+            plan,
+        });
+        app.orchestrator_goal = None;
+        app.tab = crate::app::Tab::Goals;
+    } else if open {
+        app.orchestrator_goal = Some(prompt);
+        app.orchestrator_goal_plan = plan;
+    } else {
+        app.orchestrator_goal = None;
+    }
 }

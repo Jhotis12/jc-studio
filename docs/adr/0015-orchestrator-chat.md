@@ -29,6 +29,10 @@ tenía una salida explícita para «esto no es un objetivo».
   modificar archivos** ni crear tareas.
 - La app tiene una pestaña **Orquestador** con el historial, envío, spinner y «Nueva
   conversación». El compositor de objetivos enlaza a ella.
+- Cada respuesta del Orquestador tiene **«Crear objetivo con esta respuesta»**: abre un
+  formulario editable, con la opción de planificar, y solo al pulsar «Crear objetivo» se
+  llama a `/ask`. El Orquestador nunca crea ni ejecuta trabajo por sí mismo; el texto pasa
+  por el planificador normal.
 - `POST /ask` rechaza saludos exactos (`hola`, `buenas`, `hi`, `hello`, «qué tal», etc.) con
   `not_an_objective` antes de crear el goal. Un mensaje como «hola, arregla el login» sigue
   siendo un objetivo válido.
@@ -41,7 +45,8 @@ tenía una salida explícita para «esto no es un objetivo».
 ## Consecuencias
 
 - **A favor:** preguntar ya no cuesta 4 agentes; el operador tiene un lugar para explorar
-  antes de ejecutar; el guard y el prompt se refuerzan mutuamente.
+  antes de ejecutar; el guard y el prompt se refuerzan mutuamente; convertir una propuesta
+  en objetivo exige una confirmación explícita y el texto se puede editar.
 - **En contra:** el chat del Orquestador es una sesión distinta de la que planifica cada
   goal; su transcripción no es la del planificador. Si OpenCode reinicia la sesión, el chat
   empieza sin contexto (el historial de JCS se conserva). El consumo del chat todavía no se
