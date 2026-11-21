@@ -66,9 +66,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-cli/src/main.rs": {
-    "mtime": 1795276136.2034607,
-    "seen": 1795276306.5240471,
-    "ast_hash": "7936076479da25bcf84b9282be92c291",
+    "mtime": 1795276764.2720327,
+    "seen": 1795276803.9752264,
+    "ast_hash": "c357c62ca2f7e28f17baf490b0e56eb2",
     "semantic_hash": ""
   },
   "crates/jcs-cli/src/render.rs": {
@@ -306,15 +306,15 @@
     "semantic_hash": ""
   },
   "CONTRIBUTING.md": {
-    "mtime": 1795274345.595719,
-    "seen": 1795276306.5240822,
-    "ast_hash": "296e2f44934738da99be11f1dd0529ee",
+    "mtime": 1795276722.1045442,
+    "seen": 1795276803.9756725,
+    "ast_hash": "5e70fd40b3ebef43e8f1e13510fef8ba",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1795276331.8210356,
-    "seen": 1795276660.6299684,
-    "ast_hash": "c6c8a9e85e8cde1398ae340ccbe86eb3",
+    "mtime": 1795276722.1045442,
+    "seen": 1795276803.9756734,
+    "ast_hash": "254c373346a1871a86e4b9eda86fed75",
     "semantic_hash": ""
   },
   "docs/adr/0001-daemon-thin-client.md": {
@@ -369,6 +369,18 @@
     "mtime": 1795276372.8340344,
     "seen": 1795276660.629802,
     "ast_hash": "83c99fba6a495a27cf23b2f75df6dd4b",
+    "semantic_hash": ""
+  },
+  "scripts/chaos.sh": {
+    "mtime": 1795276764.272361,
+    "seen": 1795276803.9756413,
+    "ast_hash": "92e4cb912296896aa32e90f09e774cf3",
+    "semantic_hash": ""
+  },
+  "scripts/e2e.sh": {
+    "mtime": 1795276764.2722895,
+    "seen": 1795276803.9756532,
+    "ast_hash": "c922de074b3ef40b506efc632c011da0",
     "semantic_hash": ""
   }
 }
