@@ -361,10 +361,12 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
             {
                 app.focus_task(task.goal_id.clone(), task.id.clone());
             }
+            // A task with a failed merge must first be integrated; "Pedir cambios" would
+            // create a dependent task that cannot start until that merge is resolved.
             let iterable = matches!(
                 task.status.as_str(),
                 "succeeded" | "failed" | "blocked" | "pending"
-            );
+            ) && !(task.status == "succeeded" && task.merge_error.is_some());
             if iterable {
                 let label = match task.status.as_str() {
                     "succeeded" => "Pedir cambios",
