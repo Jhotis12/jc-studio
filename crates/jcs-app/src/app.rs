@@ -227,6 +227,8 @@ pub struct Studio {
     pub skill_filter: String,
     pub goal_filter: String,
     pub show_finished_goals: bool,
+    pub iteration_for: Option<String>,
+    pub iteration_feedback: String,
     /// Terminal sessions, one per open tab.
     pub terminals: crate::terminal::Terminals,
     /// File tree, editor and task diff.
@@ -269,6 +271,8 @@ impl Studio {
             skill_filter: String::new(),
             goal_filter: String::new(),
             show_finished_goals: true,
+            iteration_for: None,
+            iteration_feedback: String::new(),
             terminals: crate::terminal::Terminals::default(),
             code: crate::ui::code::CodeState::default(),
         }

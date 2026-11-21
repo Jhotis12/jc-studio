@@ -11,6 +11,7 @@ use crate::daemon::Command;
 pub fn windows(context: &egui::Context, app: &mut Studio) {
     settings_window(context, app);
     add_project_window(context, app);
+    iteration_window(context, app);
 }
 
 fn settings_window(context: &egui::Context, app: &mut Studio) {
@@ -460,6 +461,91 @@ fn restart_daemon() -> Result<String, String> {
         Err(error) => Err(format!(
             "no se pudo ejecutar systemctl: {error}. Reinicia el servicio a mano."
         )),
+    }
+}
+
+/// Feedback for a task. Succeeded tasks get a dependent follow-up; failed/blocked tasks are
+/// retried with the new instructions.
+fn iteration_window(context: &egui::Context, app: &mut Studio) {
+    let Some(task_id) = app.iteration_for.clone() else {
+        return;
+    };
+    let Some(task) = app.state.task(&task_id).cloned() else {
+        app.iteration_for = None;
+        return;
+    };
+
+    let mut open = true;
+    let mut feedback = std::mem::take(&mut app.iteration_feedback);
+    let mut send = false;
+    egui::Window::new("Pedir cambios")
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(true)
+        .default_width(560.0)
+        .show(context, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                crate::ui::badge(ui, &task.status);
+                ui.label(RichText::new(&task.title).strong());
+            });
+            ui.label(
+                RichText::new(match task.status.as_str() {
+                    "succeeded" => {
+                        "Se creará una tarea nueva que depende de esta y trabajará en su                          worktree/integración. El resultado original no se sobrescribe."
+                    }
+                    "failed" | "blocked" => {
+                        "La tarea vuelve a la cola con estas indicaciones; el worktree se                          reutiliza."
+                    }
+                    _ => "Las indicaciones se añadirán antes de que la tarea se ejecute.",
+                })
+                .weak()
+                .small(),
+            );
+            if let Some(instructions) = &task.instructions {
+                if !instructions.trim().is_empty() {
+                    ui.collapsing("Instrucciones actuales", |ui| {
+                        ui.label(RichText::new(instructions).monospace().small().weak());
+                    });
+                }
+            }
+            ui.add_space(4.0);
+            ui.add(
+                egui::TextEdit::multiline(&mut feedback)
+                    .desired_rows(5)
+                    .desired_width(f32::INFINITY)
+                    .hint_text(
+                        "Qué debe cambiar, qué falta o qué hizo mal. Sé concreto: el agente \
+                         solo verá este texto y el contexto de la tarea.",
+                    ),
+            );
+            ui.add_space(6.0);
+            let can_send = !feedback.trim().is_empty()
+                || matches!(task.status.as_str(), "failed" | "blocked" | "pending");
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(can_send, egui::Button::new("Enviar"))
+                    .clicked()
+                {
+                    send = true;
+                }
+                if ui.button("Cancelar").clicked() {
+                    send = false;
+                    // The window closes through `open` below.
+                }
+            });
+        });
+
+    if send {
+        app.daemon.send(crate::daemon::Command::IterateTask {
+            task: task_id,
+            feedback,
+        });
+        app.iteration_for = None;
+    } else {
+        app.iteration_feedback = feedback;
+    }
+    if !open {
+        app.iteration_for = None;
     }
 }
 

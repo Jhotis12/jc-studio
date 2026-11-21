@@ -436,6 +436,7 @@ mod tests {
             id: id.into(),
             goal_id: goal.into(),
             title: "task".into(),
+            instructions: None,
             status: status.into(),
             worktree: None,
             branch: None,
@@ -443,6 +444,7 @@ mod tests {
             depends_on: Vec::new(),
             path_claims: Vec::new(),
             merged_at: None,
+            merge_error: None,
             created_at: test_timestamp(),
             updated_at: test_timestamp(),
         }

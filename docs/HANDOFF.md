@@ -224,6 +224,16 @@ consola. La decisión y las alternativas están en la
   `location[directory]=...`, no `directory=...`.
 - Editor: commit manual desde la raíz del proyecto; los worktrees de tarea los commitea el
   orquestador tras los gates.
+- Progreso: `TaskStage` (en cola, agente, verificando, integrando, completada, merge
+  bloqueado, falló, bloqueada) con barra segmentada; nunca un porcentaje inventado. El
+  objetivo usa una tira apilada por tarea, no un fill único que se vuelve azul al arrancar
+  una tarea.
+- Estancamiento: si no hay in-flight, `ready_tasks` está vacío, no hay merges pendientes y
+  quedan pending, el objetivo se marca `blocked`/`failed` (`goal_stalled`). Antes quedaba
+  `running` para siempre cuando una tarea dependía de otra bloqueada o con merge fallido.
+- Iteración: `tasks.instructions` (migración 0007) guarda la descripción del plan y el
+  feedback. `POST /tasks/{id}/iterate` reintenta failed/blocked con instrucciones o crea una
+  tarea dependiente para una succeeded. `merge-retry` limpia `merge_error`.
 
 ## Trampas ya encontradas (no repetirlas)
 
@@ -243,6 +253,13 @@ consola. La decisión y las alternativas están en la
   La app debe resolver el nombre desde el snapshot antes de pedir.
 - Un panel derecho de 390 px más uno izquierdo de 250 no caben en una ventana de 476 px:
   la app oculta paneles según el ancho y convierte el detalle en pestaña.
+- El progreso de una tarea no es un porcentaje: 45 % → 100 % era una mentira de la UI. Usar
+  etapas y segmentos; el usuario detectó el salto azul.
+- Un objetivo con una tarea pending que depende de una bloqueada/merge-fallida **no**
+  termina solo. Hay que detectar el estancamiento; `settled()` no basta.
+- `ensure_integration_branch` corre cada tick: emitir un evento siempre inunda el log.
+- Las instrucciones del plan se perdían: sin `tasks.instructions`, el agente solo veía el
+  título. La migración 0007 las conserva para prompts e iteraciones.
 - SQLite no espera a una transacción diferida que empieza leyendo y luego escribe: devuelve
   `SQLITE_BUSY` sin llamar al busy handler. Con varios agentes eso fallaba como «database is
   locked». El pool usa **una sola conexión**; SQLite ya tiene un solo escritor.

@@ -81,22 +81,11 @@ pub fn goal(ui: &mut egui::Ui, app: &mut Studio) {
 
             if total > 0 {
                 ui.add_space(8.0);
-                let fraction = succeeded as f32 / total as f32;
-                ui.add(
-                    egui::ProgressBar::new(fraction)
-                        .desired_height(8.0)
-                        .fill(status_color(if failed > 0 {
-                            "failed"
-                        } else {
-                            "succeeded"
-                        }))
-                        .text(format!("{succeeded}/{total} tareas completadas")),
-                );
+                crate::ui::task_strip(ui, &tasks);
                 ui.add_space(2.0);
                 ui.label(
                     RichText::new(format!(
-                        "{running} en curso · {verifying} verificando · {pending} en cola · \
-                         {blocked} bloqueadas · {failed} fallidas"
+                        "{succeeded}/{total} completadas · {running} en curso ·                          {verifying} verificando · {pending} en cola · {blocked} bloqueadas ·                          {failed} fallidas"
                     ))
                     .weak()
                     .small(),
@@ -265,7 +254,6 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
         app.state.task_runs(&task.id).into_iter().cloned().collect();
     let selected = app.state.selected_task.as_deref() == Some(task.id.as_str());
     let progress = task_progress(task);
-    let color = status_color(&task.status);
     let elapsed = app.state.task_elapsed_secs(task);
     let tokens = app.state.task_tokens(&task.id);
 
@@ -278,6 +266,9 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
     frame.show(ui, |ui| {
         ui.horizontal(|ui| {
             badge(ui, &task.status);
+            if task.merge_error.is_some() {
+                badge(ui, "merge bloqueado");
+            }
             if ui
                 .selectable_label(selected, RichText::new(&task.title).strong())
                 .on_hover_text("Ver la actividad del agente para esta tarea")
@@ -289,22 +280,7 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
 
         ui.add_space(3.0);
         ui.horizontal(|ui| {
-            ui.add(
-                egui::ProgressBar::new(progress.fraction)
-                    .desired_width(130.0)
-                    .desired_height(6.0)
-                    .fill(color)
-                    .text(""),
-            );
-            ui.label(
-                RichText::new(format!(
-                    "{}% · {}",
-                    (progress.fraction * 100.0).round() as i32,
-                    progress.label
-                ))
-                .small()
-                .color(color),
-            );
+            crate::ui::stage_steps(ui, progress, 120.0);
             ui.label(
                 RichText::new(format!("{} · {} tok", duration(elapsed), tokens))
                     .weak()
@@ -340,6 +316,25 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
                     .color(Color32::from_rgb(230, 170, 90)),
             );
         }
+        if let Some(error) = &task.merge_error {
+            ui.label(
+                RichText::new(format!("integración fallida: {error}"))
+                    .small()
+                    .color(Color32::from_rgb(225, 110, 110)),
+            );
+            if ui
+                .small_button("Reintentar integración")
+                .on_hover_text(
+                    "Resuelve el conflicto en el worktree y pulsa aquí para que el merge \
+                     se reintente.",
+                )
+                .clicked()
+            {
+                app.daemon.send(Command::RetryMerge {
+                    task: task.id.clone(),
+                });
+            }
+        }
 
         ui.horizontal_wrapped(|ui| {
             if ui
@@ -348,6 +343,30 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
                 .clicked()
             {
                 app.focus_task(task.goal_id.clone(), task.id.clone());
+            }
+            let iterable = matches!(
+                task.status.as_str(),
+                "succeeded" | "failed" | "blocked" | "pending"
+            );
+            if iterable {
+                let label = match task.status.as_str() {
+                    "succeeded" => "Pedir cambios",
+                    "pending" => "Añadir indicaciones",
+                    _ => "Reintentar con indicaciones",
+                };
+                if ui
+                    .small_button(label)
+                    .on_hover_text(if task.status == "succeeded" {
+                        "Crea una tarea dependiente con tus indicaciones; el trabajo original \
+                         no se modifica."
+                    } else {
+                        "Vuelve a poner la tarea en cola con las indicaciones nuevas."
+                    })
+                    .clicked()
+                {
+                    app.iteration_for = Some(task.id.clone());
+                    app.iteration_feedback.clear();
+                }
             }
             if let Some(worktree) = &task.worktree {
                 if ui

@@ -610,6 +610,51 @@ pub fn truncate(text: &str, limit: usize) -> String {
     out
 }
 
+/// Four segments and the stage name. No numeric percentage: a task does not have a
+/// meaningful "% done" while the model is thinking.
+pub fn stage_steps(ui: &mut egui::Ui, progress: crate::state::TaskProgress, width: f32) {
+    let color = status_color(progress.stage.status_key());
+    ui.horizontal(|ui| {
+        let segment = (width / progress.total.max(1) as f32).max(4.0);
+        for index in 0..progress.total {
+            let (rect, _) = ui.allocate_exact_size(
+                egui::vec2((segment - 2.0).max(2.0), 5.0),
+                egui::Sense::hover(),
+            );
+            let fill = if index < progress.filled {
+                color
+            } else {
+                egui::Color32::from_gray(48)
+            };
+            ui.painter().rect_filled(rect, 2.0, fill);
+        }
+        ui.label(RichText::new(progress.stage.label()).small().color(color));
+        if progress.stage.active() {
+            ui.spinner();
+        }
+    });
+}
+
+/// One equal segment per task, colored by stage. This is the truthful aggregate: a single
+/// fill turned blue for the whole bar as soon as any task was running.
+pub fn task_strip(ui: &mut egui::Ui, tasks: &[jcs_proto::TaskView]) {
+    if tasks.is_empty() {
+        return;
+    }
+    let width = ui.available_width().max(80.0);
+    let segment = width / tasks.len() as f32;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 8.0), egui::Sense::hover());
+    for (index, task) in tasks.iter().enumerate() {
+        let progress = crate::state::task_progress(task);
+        let color = status_color(progress.stage.status_key());
+        let piece = egui::Rect::from_min_size(
+            egui::pos2(rect.left() + index as f32 * segment, rect.top()),
+            egui::vec2((segment - 2.0).max(1.0), 8.0),
+        );
+        ui.painter().rect_filled(piece, 2.0, color);
+    }
+}
+
 pub fn metric(ui: &mut egui::Ui, label: &str, value: impl Into<String>) {
     ui.vertical(|ui| {
         ui.label(RichText::new(value.into()).strong().size(16.0));

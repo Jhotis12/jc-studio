@@ -253,12 +253,14 @@ con terminales embebidas. El daemon sigue siendo un servicio de usuario; la app 
 a él por el mismo socket que el CLI.
 
 - Proyectos y objetivos: compositor, varios objetivos a la vez, reparto justo de capacidad.
-- Detalle por objetivo: **progreso por tarea**, grafo del plan, ejecuciones, gates y
-  reanudación. Las tareas que esperan explican por qué (dependencia, rutas o turno).
+- Detalle por objetivo: **etapas reales por tarea** (sin porcentajes inventados), grafo del
+  plan, ejecuciones, gates y reanudación. Las tareas que esperan explican por qué
+  (dependencia, rutas, turno o merge). Objetivos atascados pasan a `blocked` con motivo.
 - Traza del agente: razonamiento, respuesta, herramientas y gates en vivo por tarea.
 - Chat por tarea: objetivo, respuesta, pensamiento, herramientas y gates.
 - Skills/MCP: catálogo de OpenCode, activación de skills por sesión y MCP en caliente.
-- Objetivos: cancelar, eliminar y reintentar; filtro por texto y terminados.
+- Objetivos: cancelar, eliminar y reintentar; filtro por texto y terminados. Iterar una
+  tarea con indicaciones, reintentar bloqueadas o volver a intentar un merge.
 - Código: árbol de archivos, editor con guardado, archivos nuevos, diff y commit manual
   desde la raíz del proyecto.
 - Política: packs, reglas, gates, drift y ejecución manual.

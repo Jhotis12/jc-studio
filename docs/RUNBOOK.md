@@ -83,6 +83,25 @@ al promocionar, se rebasa y se re-verifica; un conflicto bloquea el objetivo, no
 
 Para subir la concurrencia: **Ajustes → Concurrencia máxima → Guardar → Reiniciar jcsd**.
 
+### Progreso y objetivos atascados
+
+El progreso por tarea se muestra por **etapas** (en cola, agente trabajando, verificando,
+integrando, completada, merge bloqueado, falló, bloqueada), no por porcentaje: no existe un
+porcentaje real mientras el modelo piensa. El objetivo muestra una tira por tarea y los
+conteos. Si no hay tareas en vuelo, ninguna puede empezar y no hay merges pendientes, el
+objetivo pasa a `blocked`/`failed` con `goal_stalled`; ya no se queda `running` para siempre.
+
+### Iterar una tarea
+
+En el detalle de una tarea:
+
+- **Pedir cambios** (tarea completada): crea una tarea nueva que depende de ella y lleva tus
+  indicaciones; el trabajo original no se toca.
+- **Reintentar con indicaciones** (fallida/bloqueada): vuelve a la cola con las instrucciones
+  nuevas y reutiliza su worktree.
+- **Reintentar integración** (merge fallido): limpia el error para que la cola lo intente de
+  nuevo. Resuelve antes el conflicto en el worktree; si no, fallará otra vez.
+
 ### Gestionar objetivos
 
 En el detalle de un objetivo, «Gestionar objetivo» permite:

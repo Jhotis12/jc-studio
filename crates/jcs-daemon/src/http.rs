@@ -25,8 +25,8 @@ use jcs_proto::{
     ModelCatalogEntry, PackCatalogEntry, PolicyGateView, PolicyPackView, PolicyRuleView,
     PolicyView, ProjectListResponse, ProjectResponse, ProjectView, RenderPolicyRequest,
     RenderPolicyResponse, RenderedFileView, RunDetailResponse, RunView, SettingsPatch,
-    SettingsView, SkillCatalogEntry, StatusResponse, TaskView, Totals, PROTOCOL_HEADER,
-    PROTOCOL_VERSION,
+    SettingsView, SkillCatalogEntry, StatusResponse, TaskActionResponse, TaskIterateRequest,
+    TaskView, Totals, PROTOCOL_HEADER, PROTOCOL_VERSION,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -46,6 +46,8 @@ pub fn router(state: AppState) -> Router {
         .route("/goals", get(list_goals))
         .route("/tasks", get(list_tasks))
         .route("/tasks/{id}/events", get(task_events))
+        .route("/tasks/{id}/iterate", post(iterate_task))
+        .route("/tasks/{id}/merge-retry", post(retry_task_merge))
         .route("/runs", get(list_runs))
         .route("/runs/{id}", get(run_detail))
         .route("/ask", post(ask))
@@ -464,6 +466,145 @@ async fn fail_planning(state: &AppState, goal: &Goal, reason: &str) {
     if let Err(error) = jcs_store::append_event(&state.store, event).await {
         tracing::warn!(error = %error, "cannot record the planning failure");
     }
+}
+
+/// Iterates a task: retries it with feedback when it failed/was blocked, or creates a
+/// dependent follow-up task when it already succeeded. A task is never silently reopened.
+async fn iterate_task(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<TaskIterateRequest>,
+) -> ApiResult<Json<TaskActionResponse>> {
+    let task_id = TaskId::parse(id)?;
+    let task = state
+        .store
+        .get_task(&task_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("task_not_found", format!("no task {task_id}")))?;
+    let goal = state.store.get_goal(&task.goal_id).await?.ok_or_else(|| {
+        ApiError::not_found("goal_not_found", format!("no goal {}", task.goal_id))
+    })?;
+
+    if matches!(
+        goal.status,
+        GoalStatus::Succeeded | GoalStatus::Failed | GoalStatus::Cancelled
+    ) {
+        return Err(ApiError::conflict(
+            "goal_finished",
+            "the goal already finished; create a new objective to iterate on it",
+        ));
+    }
+
+    let feedback = request.feedback.trim();
+    match task.status {
+        TaskStatus::Running | TaskStatus::Verifying => Err(ApiError::conflict(
+            "task_busy",
+            "the task is still running; let it finish or abort it before iterating",
+        )),
+        TaskStatus::Cancelled => Err(ApiError::conflict(
+            "task_cancelled",
+            "a cancelled task cannot be reopened; create a new objective",
+        )),
+        TaskStatus::Succeeded => {
+            if feedback.is_empty() {
+                return Err(ApiError::bad_request(
+                    "empty_feedback",
+                    "describe what should change before iterating a finished task",
+                ));
+            }
+            let created = state.store.add_iteration_task(&task, feedback).await?;
+            if goal.status == GoalStatus::Blocked {
+                state
+                    .store
+                    .set_goal_status(&goal.id, GoalStatus::Running)
+                    .await?;
+            }
+            Ok(Json(TaskActionResponse {
+                ok: true,
+                task_id: created.id.to_string(),
+                status: TaskStatus::Pending.as_str().to_string(),
+                created_task_id: Some(created.id.to_string()),
+            }))
+        }
+        TaskStatus::Pending => {
+            if !feedback.is_empty() {
+                state
+                    .store
+                    .set_task_instructions(&task.id, feedback)
+                    .await?;
+            }
+            if goal.status == GoalStatus::Blocked {
+                state
+                    .store
+                    .set_goal_status(&goal.id, GoalStatus::Running)
+                    .await?;
+            }
+            Ok(Json(TaskActionResponse {
+                ok: true,
+                task_id: task.id.to_string(),
+                status: TaskStatus::Pending.as_str().to_string(),
+                created_task_id: None,
+            }))
+        }
+        TaskStatus::Failed | TaskStatus::Blocked => {
+            let retried = state.store.retry_task(&task.id, Some(feedback)).await?;
+            if goal.status == GoalStatus::Blocked {
+                state
+                    .store
+                    .set_goal_status(&goal.id, GoalStatus::Running)
+                    .await?;
+            }
+            Ok(Json(TaskActionResponse {
+                ok: true,
+                task_id: retried.id.to_string(),
+                status: retried.status.as_str().to_string(),
+                created_task_id: None,
+            }))
+        }
+    }
+}
+
+/// Clears a failed integration so the merge queue tries again. The operator is expected to
+/// have resolved the conflict in the task worktree.
+async fn retry_task_merge(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<TaskActionResponse>> {
+    let task_id = TaskId::parse(id)?;
+    let task = state
+        .store
+        .get_task(&task_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("task_not_found", format!("no task {task_id}")))?;
+    if task.status != TaskStatus::Succeeded {
+        return Err(ApiError::conflict(
+            "task_not_succeeded",
+            "only a succeeded task can retry its integration",
+        ));
+    }
+    if state.store.task_merge_error(&task_id).await?.is_none() {
+        return Err(ApiError::conflict(
+            "no_merge_error",
+            "the task has no integration error to retry",
+        ));
+    }
+
+    state.store.clear_task_merge_error(&task_id).await?;
+    if let Some(goal) = state.store.get_goal(&task.goal_id).await? {
+        if goal.status == GoalStatus::Blocked {
+            state
+                .store
+                .set_goal_status(&goal.id, GoalStatus::Running)
+                .await?;
+        }
+    }
+
+    Ok(Json(TaskActionResponse {
+        ok: true,
+        task_id: task.id.to_string(),
+        status: TaskStatus::Succeeded.as_str().to_string(),
+        created_task_id: None,
+    }))
 }
 
 /// Bounded event history for one task, used by the interface to reconstruct the agent's
@@ -1378,6 +1519,7 @@ fn task_view(task: &jcs_core::Task) -> TaskView {
         id: task.id.to_string(),
         goal_id: task.goal_id.to_string(),
         title: task.title.clone(),
+        instructions: task.instructions.clone(),
         status: task.status.as_str().to_string(),
         worktree: task
             .worktree
@@ -1388,6 +1530,7 @@ fn task_view(task: &jcs_core::Task) -> TaskView {
         depends_on: Vec::new(),
         path_claims: task.path_claims.clone(),
         merged_at: None,
+        merge_error: None,
         created_at: task.created_at,
         updated_at: task.updated_at,
     }
@@ -1406,6 +1549,7 @@ async fn task_views(state: &AppState, tasks: &[jcs_core::Task]) -> ApiResult<Vec
             .map(|id| id.to_string())
             .collect();
         view.merged_at = state.store.task_merged_at(&task.id).await?;
+        view.merge_error = state.store.task_merge_error(&task.id).await?;
         views.push(view);
     }
     Ok(views)
@@ -1671,6 +1815,78 @@ mod tests {
         assert!(events
             .iter()
             .any(|event| event.kind == EventKind::GoalDeleted));
+    }
+
+    #[tokio::test]
+    async fn a_finished_task_can_be_iterated_and_a_merge_retried() {
+        let state = test_state().await;
+        let directory = tempfile::tempdir().unwrap();
+        let project = Project {
+            id: ProjectId::new(),
+            name: "iterate".to_string(),
+            root_path: directory.path().to_path_buf(),
+            base_branch: "main".to_string(),
+            created_at: jiff::Timestamp::now(),
+            auto_merge: false,
+            budget_usd_per_day: None,
+            budget_tokens_per_day: None,
+        };
+        state.store.insert_project(&project).await.unwrap();
+        let goal = state
+            .store
+            .create_goal_with_settings(&project.id, "objective", None, None, "auto")
+            .await
+            .unwrap();
+        let task = state.store.create_task(&goal.id, "original").await.unwrap();
+        for status in [
+            TaskStatus::Running,
+            TaskStatus::Verifying,
+            TaskStatus::Succeeded,
+        ] {
+            state.store.set_task_status(&task.id, status).await.unwrap();
+        }
+
+        let app = router(state.clone());
+        let (status, body) = send(
+            app.clone(),
+            "POST",
+            &format!("/tasks/{}/iterate", task.id),
+            Some(r#"{"feedback":"change the header"}"#),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+        let created = body["created_task_id"].as_str().unwrap().to_string();
+        assert_eq!(body["status"], "pending");
+        let created = jcs_core::TaskId::parse(created).unwrap();
+        let created_task = state.store.get_task(&created).await.unwrap().unwrap();
+        assert_eq!(
+            created_task.instructions.as_deref(),
+            Some("change the header")
+        );
+        assert_eq!(
+            state.store.task_dependencies(&created).await.unwrap(),
+            vec![task.id.clone()]
+        );
+
+        state
+            .store
+            .mark_task_merge_failed(&task.id, "conflict in src/a.rs")
+            .await
+            .unwrap();
+        let (status, body) = send(
+            app,
+            "POST",
+            &format!("/tasks/{}/merge-retry", task.id),
+            Some("{}"),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+        assert!(state
+            .store
+            .task_merge_error(&task.id)
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

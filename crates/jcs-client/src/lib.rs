@@ -203,6 +203,25 @@ impl Client {
             .await
     }
 
+    pub async fn iterate_task(
+        &self,
+        task: &str,
+        feedback: &str,
+    ) -> Result<jcs_proto::TaskActionResponse> {
+        let request = jcs_proto::TaskIterateRequest {
+            feedback: feedback.to_string(),
+        };
+        self.post(&format!("/tasks/{task}/iterate"), &request).await
+    }
+
+    pub async fn retry_task_merge(&self, task: &str) -> Result<jcs_proto::TaskActionResponse> {
+        self.post(
+            &format!("/tasks/{task}/merge-retry"),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
     pub async fn delete_goal(&self, id: &str) -> Result<jcs_proto::OkResponse> {
         self.delete(&format!("/goals/{id}")).await
     }

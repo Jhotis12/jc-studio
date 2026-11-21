@@ -181,50 +181,45 @@ fn card(ui: &mut egui::Ui, app: &mut Studio, goal: &GoalView) {
         }
 
         if total > 0 {
-            let fraction = succeeded as f32 / total as f32;
-            ui.add_space(2.0);
-            ui.add(
-                egui::ProgressBar::new(fraction)
-                    .desired_width(f32::INFINITY)
-                    .desired_height(6.0)
-                    .fill(if running > 0 {
-                        status_color("running")
-                    } else {
-                        status_color("succeeded")
-                    })
-                    .text(RichText::new("").small()),
-            );
-            ui.add_space(2.0);
+            let blocked = tasks
+                .iter()
+                .filter(|task| {
+                    matches!(
+                        task_progress(task).stage,
+                        crate::state::TaskStage::MergeFailed
+                            | crate::state::TaskStage::Blocked
+                            | crate::state::TaskStage::Failed
+                    )
+                })
+                .count();
+            ui.add_space(3.0);
             ui.horizontal_wrapped(|ui| {
                 ui.label(
                     RichText::new(format!(
-                        "{succeeded}/{total} · {running} en curso · {pending} en cola"
+                        "{succeeded}/{total} completadas · {running} en curso ·                          {pending} en cola · {blocked} con problemas"
                     ))
                     .weak()
                     .small(),
                 );
-                ui.add_space(4.0);
-                // One bar per task: stage progress at a glance without opening the detail.
+            });
+            ui.add_space(3.0);
+            // One clickable segment per task: the color is the real stage, and a click
+            // opens its chat. No single aggregate fill to mislead.
+            ui.horizontal_wrapped(|ui| {
                 for task in &tasks {
                     let progress = task_progress(task);
-                    let color = status_color(&task.status);
+                    let color = status_color(progress.stage.status_key());
                     let (rect, response) =
-                        ui.allocate_exact_size(egui::vec2(26.0, 8.0), egui::Sense::click());
-                    ui.painter()
-                        .rect_filled(rect, 2.0, egui::Color32::from_gray(45));
-                    if progress.fraction > 0.0 {
-                        ui.painter().rect_filled(
-                            egui::Rect::from_min_size(
-                                rect.min,
-                                egui::vec2(26.0 * progress.fraction, 8.0),
-                            ),
-                            2.0,
-                            color,
-                        );
-                    }
+                        ui.allocate_exact_size(egui::vec2(30.0, 9.0), egui::Sense::click());
+                    ui.painter().rect_filled(rect, 2.0, color);
                     if response.clicked() {
                         app.focus_task(goal.id.clone(), task.id.clone());
                     }
+                    ui.label(
+                        RichText::new(progress.stage.label())
+                            .small()
+                            .color(color),
+                    );
                 }
             });
         } else if goal.status == "running" {

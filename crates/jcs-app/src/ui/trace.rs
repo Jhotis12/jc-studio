@@ -41,23 +41,11 @@ pub fn panel(ui: &mut egui::Ui, app: &mut Studio) {
     ui.horizontal_wrapped(|ui| {
         ui.label(RichText::new("Chat").strong());
         badge(ui, &task.status);
-        ui.add(
-            egui::ProgressBar::new(progress.fraction)
-                .desired_width(100.0)
-                .desired_height(6.0)
-                .fill(status_color(&task.status))
-                .text(""),
-        );
+        crate::ui::stage_steps(ui, progress, 100.0);
         ui.label(
-            RichText::new(format!(
-                "{}% · {} · {} · {} tok",
-                (progress.fraction * 100.0).round() as i32,
-                progress.label,
-                duration(elapsed),
-                tokens
-            ))
-            .weak()
-            .small(),
+            RichText::new(format!("{} · {} tok", duration(elapsed), tokens))
+                .weak()
+                .small(),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
@@ -235,6 +223,9 @@ fn system_line(ui: &mut egui::Ui, line: &ActivityLine) {
                     .small()
                     .weak(),
             );
+        }
+        if line.count > 1 {
+            ui.label(RichText::new(format!("×{}", line.count)).weak().small());
         }
     });
 }

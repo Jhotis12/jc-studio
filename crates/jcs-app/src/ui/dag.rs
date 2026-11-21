@@ -135,11 +135,7 @@ pub fn graph(ui: &mut egui::Ui, app: &mut Studio, tasks: &[TaskView]) {
                 painter.text(
                     rect.min + Vec2::new(9.0, 25.0),
                     Align2::LEFT_TOP,
-                    format!(
-                        "{}% · {}",
-                        (progress.fraction * 100.0).round() as i32,
-                        progress.label
-                    ),
+                    progress.stage.label(),
                     FontId::proportional(10.0),
                     color,
                 );
@@ -148,12 +144,19 @@ pub fn graph(ui: &mut egui::Ui, app: &mut Studio, tasks: &[TaskView]) {
                     rect.left_bottom() + Vec2::new(9.0, -12.0),
                     Vec2::new(rect.width() - 18.0, 3.0),
                 );
-                painter.rect_filled(bar, CornerRadius::same(2), Color32::from_gray(48));
-                painter.rect_filled(
-                    Rect::from_min_size(bar.min, Vec2::new(bar.width() * progress.fraction, 3.0)),
-                    CornerRadius::same(2),
-                    color,
-                );
+                let segment = bar.width() / progress.total.max(1) as f32;
+                for index in 0..progress.total {
+                    let piece = Rect::from_min_size(
+                        bar.min + Vec2::new(index as f32 * segment, 0.0),
+                        Vec2::new((segment - 1.0).max(1.0), 3.0),
+                    );
+                    let fill = if index < progress.filled {
+                        color
+                    } else {
+                        Color32::from_gray(48)
+                    };
+                    painter.rect_filled(piece, CornerRadius::same(2), fill);
+                }
 
                 if is_hovered {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

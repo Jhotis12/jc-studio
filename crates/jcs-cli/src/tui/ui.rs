@@ -380,6 +380,7 @@ mod tests {
             id: "task_1".into(),
             goal_id: "goal_1".into(),
             title: "write the code".into(),
+            instructions: None,
             status: "succeeded".into(),
             worktree: None,
             branch: None,
@@ -387,6 +388,7 @@ mod tests {
             depends_on: vec!["task_0".into()],
             path_claims: Vec::new(),
             merged_at: None,
+            merge_error: None,
             created_at: now,
             updated_at: now,
         }];

@@ -41,6 +41,9 @@ pub struct Task {
     pub id: TaskId,
     pub goal_id: GoalId,
     pub title: String,
+    /// Standalone instructions for the implementer. Set from the plan or from operator
+    /// feedback when a task is iterated.
+    pub instructions: Option<String>,
     pub status: TaskStatus,
     /// Absolute path of the isolated worktree, once created.
     pub worktree: Option<PathBuf>,

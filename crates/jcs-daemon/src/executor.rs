@@ -1160,6 +1160,7 @@ fn build_prompt(
          Objective:\n{prompt}\n\
          \n\
          Task: {title}\n\
+         {instructions}\
          {description}\n\
          \n\
          Rules:\n\
@@ -1176,6 +1177,12 @@ fn build_prompt(
         worktree = worktree.display(),
         prompt = goal.prompt,
         title = task.title,
+        instructions = task
+            .instructions
+            .as_deref()
+            .filter(|text| !text.trim().is_empty())
+            .map(|text| format!("Instructions:\n{}\n\n", text.trim()))
+            .unwrap_or_default(),
         description = if task.path_claims.is_empty() {
             String::new()
         } else {
@@ -1331,6 +1338,7 @@ mod tests {
             id: TaskId::new(),
             goal_id: goal.id.clone(),
             title: "the task".into(),
+            instructions: None,
             status: TaskStatus::Running,
             worktree: None,
             branch: None,

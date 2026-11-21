@@ -40,50 +40,95 @@ pub struct ActivityLine {
     pub time: String,
     pub kind: String,
     pub detail: String,
+    /// Consecutive identical events are folded into one line with a counter.
+    pub count: u32,
 }
 
-/// Stage-based progress of one task. This is the lifecycle, not a guess at model progress:
-/// there is no honest percentage for "how much thinking is left".
+/// Stage of one task. This is the lifecycle, not a guess at how much model work remains:
+/// there is no honest percentage for "thinking".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskStage {
+    Queued,
+    Agent,
+    Verifying,
+    Integrating,
+    Done,
+    MergeFailed,
+    Failed,
+    Blocked,
+    Cancelled,
+}
+
+impl TaskStage {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Queued => "en cola",
+            Self::Agent => "agente trabajando",
+            Self::Verifying => "verificando",
+            Self::Integrating => "integrando",
+            Self::Done => "completada",
+            Self::MergeFailed => "merge bloqueado",
+            Self::Failed => "falló",
+            Self::Blocked => "bloqueada",
+            Self::Cancelled => "cancelada",
+        }
+    }
+
+    /// Maps to the shared status palette.
+    pub fn status_key(self) -> &'static str {
+        match self {
+            Self::Queued => "pending",
+            Self::Agent => "running",
+            Self::Verifying => "verifying",
+            Self::Integrating => "running",
+            Self::Done => "succeeded",
+            Self::MergeFailed | Self::Blocked => "blocked",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    pub fn active(self) -> bool {
+        matches!(self, Self::Agent | Self::Verifying | Self::Integrating)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct TaskProgress {
-    pub fraction: f32,
-    pub label: &'static str,
+    pub stage: TaskStage,
+    /// Completed segments out of [`TaskProgress::total`].
+    pub filled: usize,
+    pub total: usize,
 }
 
 pub fn task_progress(task: &TaskView) -> TaskProgress {
-    match task.status.as_str() {
-        "pending" => TaskProgress {
-            fraction: 0.0,
-            label: "en cola",
-        },
-        "running" => TaskProgress {
-            fraction: 0.45,
-            label: "agente trabajando",
-        },
-        "verifying" => TaskProgress {
-            fraction: 0.8,
-            label: "verificando gates",
-        },
-        "succeeded" => TaskProgress {
-            fraction: 1.0,
-            label: "completada",
-        },
-        "failed" => TaskProgress {
-            fraction: 1.0,
-            label: "falló",
-        },
-        "blocked" => TaskProgress {
-            fraction: 0.5,
-            label: "bloqueada",
-        },
-        "cancelled" => TaskProgress {
-            fraction: 1.0,
-            label: "cancelada",
-        },
-        _ => TaskProgress {
-            fraction: 0.0,
-            label: "desconocido",
-        },
+    let stage = match task.status.as_str() {
+        "pending" => TaskStage::Queued,
+        "running" => TaskStage::Agent,
+        "verifying" => TaskStage::Verifying,
+        "succeeded" if task.merge_error.is_some() => TaskStage::MergeFailed,
+        "succeeded" if task.merged_at.is_some() => TaskStage::Done,
+        "succeeded" => TaskStage::Integrating,
+        "failed" => TaskStage::Failed,
+        "blocked" => TaskStage::Blocked,
+        "cancelled" => TaskStage::Cancelled,
+        _ => TaskStage::Queued,
+    };
+    let filled = match stage {
+        TaskStage::Queued => 0,
+        TaskStage::Agent => 1,
+        TaskStage::Verifying => 2,
+        TaskStage::Integrating => 3,
+        TaskStage::MergeFailed => 3,
+        TaskStage::Done => 4,
+        TaskStage::Failed => 4,
+        TaskStage::Blocked => 2,
+        TaskStage::Cancelled => 0,
+    };
+    TaskProgress {
+        stage,
+        filled,
+        total: 4,
     }
 }
 
@@ -178,6 +223,23 @@ impl State {
             Update::Settings(settings) => self.settings = Some(settings),
             Update::Models(models) => self.models = models,
             Update::Skills(skills) => self.skills = skills,
+            Update::TaskAction(action) => {
+                if let Some(id) = &action.created_task_id {
+                    self.selected_task = Some(id.clone());
+                }
+                self.notice = Some(Notice {
+                    message: if action.created_task_id.is_some() {
+                        "tarea de iteración creada".to_string()
+                    } else {
+                        format!(
+                            "tarea {} en estado {}",
+                            crate::daemon::short(&action.task_id),
+                            action.status
+                        )
+                    },
+                    error: false,
+                });
+            }
             Update::Mcp(servers) => self.mcp = servers,
             Update::Project(project) => {
                 self.selected_project = Some(project.id.clone());
@@ -232,13 +294,27 @@ impl State {
         }
 
         let detail = summarize(&event);
+        let goal_id = event.goal_id.as_ref().map(|id| id.to_string());
+        let task_id = event.task_id.as_ref().map(|id| id.to_string());
+        let kind = event.kind.as_str().to_string();
+        if let Some(last) = self.events.back_mut() {
+            if last.kind == kind
+                && last.detail == detail
+                && last.goal_id == goal_id
+                && last.task_id == task_id
+            {
+                last.count += 1;
+                return;
+            }
+        }
         self.events.push_back(ActivityLine {
             seq: event.seq,
-            goal_id: event.goal_id.as_ref().map(|id| id.to_string()),
-            task_id: event.task_id.as_ref().map(|id| id.to_string()),
+            goal_id,
+            task_id,
             time: event.ts.strftime("%H:%M:%S").to_string(),
-            kind: event.kind.as_str().to_string(),
+            kind,
             detail,
+            count: 1,
         });
         while self.events.len() > 2000 {
             self.events.pop_front();
@@ -331,6 +407,10 @@ impl State {
     pub fn selected_goal(&self) -> Option<&jcs_proto::GoalView> {
         let id = self.selected_goal.as_deref()?;
         self.goals.iter().find(|goal| goal.id == id)
+    }
+
+    pub fn task(&self, id: &str) -> Option<&TaskView> {
+        self.tasks.iter().find(|task| task.id == id)
     }
 
     pub fn selected_task(&self) -> Option<&TaskView> {
@@ -569,7 +649,11 @@ mod tests {
     fn the_event_console_is_bounded() {
         let mut state = State::default();
         for seq in 1..=2200 {
-            state.push_event(event(seq, EventKind::AgentText, serde_json::json!({})));
+            state.push_event(event(
+                seq,
+                EventKind::AgentText,
+                serde_json::json!({ "text": format!("line {seq}") }),
+            ));
         }
         assert_eq!(state.events.len(), 2000);
         assert_eq!(state.events.front().unwrap().seq, 201);

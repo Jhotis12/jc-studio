@@ -178,6 +178,9 @@ pub struct TaskView {
     pub id: String,
     pub goal_id: String,
     pub title: String,
+    /// Standalone instructions for the task, including iteration feedback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree: Option<String>,
@@ -194,6 +197,9 @@ pub struct TaskView {
     /// When the task's commit was integrated into the goal branch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub merged_at: Option<Timestamp>,
+    /// Why the integration into the goal branch failed, if it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merge_error: Option<String>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }
@@ -434,6 +440,24 @@ pub struct McpServerEntry {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+/// Feedback for a task iteration or retry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskIterateRequest {
+    #[serde(default)]
+    pub feedback: String,
+}
+
+/// Result of iterating or retrying a task.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskActionResponse {
+    pub ok: bool,
+    pub task_id: String,
+    pub status: String,
+    /// Present when a new follow-up task was created.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_task_id: Option<String>,
 }
 
 /// Adds or replaces an MCP server at runtime.

@@ -109,6 +109,13 @@ pub enum Command {
         project: String,
         server: String,
     },
+    IterateTask {
+        task: String,
+        feedback: String,
+    },
+    RetryMerge {
+        task: String,
+    },
 }
 
 /// Facts the daemon reports back to the interface.
@@ -130,6 +137,7 @@ pub enum Update {
     TaskHistory(Vec<Event>),
     Skills(Vec<jcs_proto::SkillCatalogEntry>),
     Mcp(Vec<jcs_proto::McpServerEntry>),
+    TaskAction(jcs_proto::TaskActionResponse),
     GoalAction(GoalActionResponse),
     GoalDeleted(String),
     Project(ProjectView),
@@ -558,6 +566,26 @@ async fn handle(client: &Client, updates: &Sender<Update>, command: Command) {
                 Err(error) => notice(updates, error, "no se pudo eliminar el MCP"),
             }
         }
+        Command::IterateTask { task, feedback } => {
+            match client.iterate_task(&task, &feedback).await {
+                Ok(action) => {
+                    let _ = updates.send(Update::TaskAction(action));
+                    refresh(client, updates).await;
+                }
+                Err(error) => notice(updates, error, "no se pudo iterar la tarea"),
+            }
+        }
+        Command::RetryMerge { task } => match client.retry_task_merge(&task).await {
+            Ok(action) => {
+                let _ = updates.send(Update::TaskAction(action));
+                let _ = updates.send(Update::Notice {
+                    message: "se reintentará la integración en el próximo tick".to_string(),
+                    error: false,
+                });
+                refresh(client, updates).await;
+            }
+            Err(error) => notice(updates, error, "no se pudo reintentar la integración"),
+        },
         Command::TaskEvents { task } => match client.task_events(&task, 500).await {
             Ok(events) => {
                 let _ = updates.send(Update::TaskHistory(events));

@@ -20,9 +20,9 @@ Si llegas aquí después de una compactación de contexto, el punto de entrada e
 | 5 — Revisión de código y seguridad | 6 | **completa** | 100 % |
 | 6 — Telegram | 4 | operativa | 85 % |
 | 7 — Hardening y distribución | 10 | casi completa (Linux empaquetado) | 80 % |
-| 8 — App de escritorio (egui) | 18 | funcional; faltan chat interactivo y PTY en daemon | 90 % |
+| 8 — App de escritorio (egui) | 19 | funcional; faltan chat interactivo y PTY en daemon | 92 % |
 
-- **Producto completo (backend + app): ~92 %.**
+- **Producto completo (backend + app): ~93 %.**
 - **MVP (fases 0–4): ~99 %.**
 
 El porcentaje mide alcance, no riesgo. La tesis arquitectónica (daemon durable, agente real,
@@ -118,6 +118,18 @@ El razonamiento y las alternativas están en la [ADR 0010](adr/0010-desktop-app-
 - [x] 8.12 Chat del agente por tarea: objetivo y tarea como mensajes, respuesta coalescida,
       pensamiento colapsable, herramientas y eventos; solo lectura. El commit manual desde
       el editor está limitado a la raíz del proyecto; los worktrees los commitea el agente.
+- [x] 8.13 Progreso honesto: etapas reales por tarea (en cola, agente, verificación,
+      integración, completada, merge bloqueado, falló, bloqueada), sin porcentajes falsos;
+      barras segmentadas por tarea y resumen apilado del objetivo. Los eventos idénticos
+      consecutivos se pliegan con un contador para no inundar la consola.
+- [x] 8.14 Detección de objetivos atascados: si no hay tareas en vuelo, ninguna lista y no
+      hay merges pendientes, el objetivo pasa a `blocked`/`failed` con `goal_stalled` en vez
+      de quedarse `running` para siempre. `ensure_integration_branch` ya no escribe un evento
+      por tick.
+- [x] 8.15 Iteración de tareas: las instrucciones del plan se guardan (migración 0007) y se
+      usan en el prompt; una tarea fallida/bloqueada se reintenta con indicaciones y una
+      tarea terminada crea una tarea dependiente de iteración. «Reintentar integración»
+      limpia el error de merge para que la cola lo reintente tras resolver el conflicto.
 
 Nota: `egui 0.37` rediseñó `eframe::App`; la app está anclada a **0.31** hasta que la nueva
 API esté documentada y probada.
@@ -140,7 +152,7 @@ API esté documentada y probada.
 
 | Comando | Qué demuestra |
 |---|---|
-| `cargo nextest run --workspace` | **322 tests** unitarios, de propiedad y de integración |
+| `cargo nextest run --workspace` | **329 tests** unitarios, de propiedad y de integración |
 | `just e2e` | objetivo → worktree → agente → gates → commit |
 | `just e2e-policy` | gate que exige un token: prueba el bucle de reparación |
 | `just e2e-plan` | objetivo → plan → DAG → tareas → entregables |

@@ -418,6 +418,7 @@ mod tests {
             id: jcs_core::TaskId::new(),
             goal_id: goal.id.clone(),
             title: "validate email".into(),
+            instructions: None,
             status: jcs_core::TaskStatus::Verifying,
             worktree: None,
             branch: None,

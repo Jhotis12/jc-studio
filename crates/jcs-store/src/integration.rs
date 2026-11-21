@@ -82,7 +82,8 @@ impl Store {
     pub async fn tasks_pending_merge(&self) -> Result<Vec<Task>> {
         let rows: Vec<crate::tasks::TaskRow> = sqlx::query_as(
             "SELECT t.id, t.goal_id, t.title, t.status, t.worktree, t.branch, t.session_id, \
-                    t.role, t.priority, t.path_claims, t.created_at, t.updated_at \
+                    t.role, t.priority, t.path_claims, t.instructions, t.created_at, \
+                    t.updated_at \
              FROM tasks t JOIN goals g ON g.id = t.goal_id \
              WHERE t.status = 'succeeded' AND t.merged_at IS NULL AND t.merge_error IS NULL \
                AND g.integration_branch IS NOT NULL \

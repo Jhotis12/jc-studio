@@ -99,6 +99,18 @@ async fn tick(state: &AppState, owner: &str, offset: &mut usize) -> Result<()> {
             continue;
         }
 
+        // A pending task can be permanently unable to run: it depends on a blocked or
+        // failed task, or its predecessor is succeeded but its merge failed. Without this
+        // check the goal stays `running` forever because `settled()` is false.
+        if counts.in_flight() == 0
+            && state.store.ready_tasks(&goal.id).await?.is_empty()
+            && state.store.goal_pending_merges(&goal.id).await? == 0
+            && counts.pending > 0
+        {
+            finalize_stalled(state, &goal, &project, counts).await?;
+            continue;
+        }
+
         // Independent tasks of the same goal must be able to run together. The semaphore
         // bounds total concurrency and the path claims prevent two tasks from touching the
         // same files; "one in flight" was a leftover that serialised every plan.
@@ -196,6 +208,50 @@ async fn block_goal(state: &AppState, goal: &Goal, reason: &str) -> Result<()> {
     jcs_store::append_event(&state.store, event).await?;
 
     tracing::warn!(goal = %goal.id, reason, "goal parked: budget exhausted");
+    Ok(())
+}
+
+/// A goal with pending tasks that can never become ready is not "running". Park it with a
+/// reason so the operator can resolve the merge/blocked tasks, resume or delete it.
+async fn finalize_stalled(
+    state: &AppState,
+    goal: &Goal,
+    project: &Project,
+    counts: jcs_store::TaskCounts,
+) -> Result<()> {
+    let merge_errors = state.store.goal_has_merge_errors(&goal.id).await?;
+    let next = if counts.failed > 0 {
+        GoalStatus::Failed
+    } else {
+        GoalStatus::Blocked
+    };
+    if goal.status == next || !goal.status.can_transition_to(next) {
+        return Ok(());
+    }
+
+    state.store.set_goal_status(&goal.id, next).await?;
+    let event = NewEvent::new(EventKind::Error)
+        .project(&project.id)
+        .goal(&goal.id)
+        .payload(serde_json::json!({
+            "category": "goal_stalled",
+            "reason": "no remaining task can become ready",
+            "pending": counts.pending,
+            "blocked": counts.blocked,
+            "failed": counts.failed,
+            "merge_errors": merge_errors,
+            "hint": "resolve the blocked or merge-conflicted tasks, then `jcs resume`;                      or delete/recreate the goal",
+        }));
+    jcs_store::append_event(&state.store, event).await?;
+
+    tracing::warn!(
+        goal = %goal.id,
+        status = next.as_str(),
+        pending = counts.pending,
+        blocked = counts.blocked,
+        failed = counts.failed,
+        "goal stalled: no pending task can become ready"
+    );
     Ok(())
 }
 

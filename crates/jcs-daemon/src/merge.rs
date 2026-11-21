@@ -49,6 +49,9 @@ pub async fn ensure_integration_branch(
     };
     let repo = Repo::new(&project.root_path);
 
+    // Emit an event only when the branch actually changes. This function runs every tick;
+    // logging "created" each time flooded the event log with thousands of identical lines.
+    let mut changed = None;
     if repo.branch_exists(&branch).await? {
         // A blocked goal's branch may predate another goal's promotion. If it has no work
         // of its own it is just a stale pointer: move it to the current base instead of
@@ -65,6 +68,7 @@ pub async fn ensure_integration_branch(
             repo.move_branch(&branch, &project.base_branch)
                 .await
                 .with_context(|| format!("cannot move {branch} to {}", project.base_branch))?;
+            changed = Some("integration_branch_moved");
         }
     } else {
         repo.create_branch(&branch, &project.base_branch)
@@ -75,17 +79,20 @@ pub async fn ensure_integration_branch(
                     project.base_branch
                 )
             })?;
+        changed = Some("integration_branch_created");
     }
 
-    let event = NewEvent::new(EventKind::MergeFinished)
-        .project(&project.id)
-        .goal(&goal.id)
-        .payload(serde_json::json!({
-            "result": "integration_branch_created",
-            "branch": branch,
-            "from": project.base_branch,
-        }));
-    jcs_store::append_event(&state.store, event).await?;
+    if let Some(result) = changed {
+        let event = NewEvent::new(EventKind::MergeFinished)
+            .project(&project.id)
+            .goal(&goal.id)
+            .payload(serde_json::json!({
+                "result": result,
+                "branch": branch,
+                "from": project.base_branch,
+            }));
+        jcs_store::append_event(&state.store, event).await?;
+    }
 
     Ok(Some(branch))
 }
