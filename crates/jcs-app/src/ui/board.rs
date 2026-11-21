@@ -7,6 +7,7 @@ use egui::{Color32, RichText};
 use jcs_proto::GoalView;
 
 use crate::app::Studio;
+use crate::state::task_progress;
 use crate::ui::{badge, status_color};
 
 pub fn goals(ui: &mut egui::Ui, app: &mut Studio) {
@@ -98,18 +99,19 @@ fn composer(ui: &mut egui::Ui, app: &mut Studio) {
 
 fn card(ui: &mut egui::Ui, app: &mut Studio, goal: &GoalView) {
     let selected = app.state.selected_goal.as_deref() == Some(goal.id.as_str());
-    let total = app.state.goal_tasks(&goal.id).len();
-    let succeeded = app
+    let tasks: Vec<jcs_proto::TaskView> = app
         .state
         .goal_tasks(&goal.id)
+        .into_iter()
+        .cloned()
+        .collect();
+    let total = tasks.len();
+    let succeeded = tasks
         .iter()
         .filter(|task| task.status == "succeeded")
         .count();
-    let running = app
-        .state
-        .goal_tasks(&goal.id)
-        .iter()
-        .any(|task| task.status == "running");
+    let running = tasks.iter().filter(|task| task.status == "running").count();
+    let pending = tasks.iter().filter(|task| task.status == "pending").count();
     let (cost, _, _) = app.state.goal_cost(&goal.id);
 
     let frame = egui::Frame::group(ui.style()).fill(if selected {
@@ -161,13 +163,52 @@ fn card(ui: &mut egui::Ui, app: &mut Studio, goal: &GoalView) {
                 egui::ProgressBar::new(fraction)
                     .desired_width(f32::INFINITY)
                     .desired_height(6.0)
-                    .fill(if running {
+                    .fill(if running > 0 {
                         status_color("running")
                     } else {
                         status_color("succeeded")
                     })
                     .text(RichText::new("").small()),
             );
+            ui.add_space(2.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    RichText::new(format!(
+                        "{succeeded}/{total} · {running} en curso · {pending} en cola"
+                    ))
+                    .weak()
+                    .small(),
+                );
+                ui.add_space(4.0);
+                // One bar per task: stage progress at a glance without opening the detail.
+                for task in &tasks {
+                    let progress = task_progress(task);
+                    let color = status_color(&task.status);
+                    let (rect, response) =
+                        ui.allocate_exact_size(egui::vec2(26.0, 8.0), egui::Sense::click());
+                    ui.painter()
+                        .rect_filled(rect, 2.0, egui::Color32::from_gray(45));
+                    if progress.fraction > 0.0 {
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(
+                                rect.min,
+                                egui::vec2(26.0 * progress.fraction, 8.0),
+                            ),
+                            2.0,
+                            color,
+                        );
+                    }
+                    if response.clicked() {
+                        app.focus_task(goal.id.clone(), task.id.clone());
+                    }
+                    response.on_hover_text(format!(
+                        "{} · {}% · {}",
+                        task.title,
+                        (progress.fraction * 100.0).round() as i32,
+                        progress.label
+                    ));
+                }
+            });
         } else if goal.status == "running" {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("planificando…").weak().small());

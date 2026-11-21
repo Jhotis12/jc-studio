@@ -5,11 +5,14 @@
 //! changes durable state is an explicit button, never a text command.
 
 pub mod board;
+pub mod code;
+pub mod dag;
 pub mod details;
 pub mod memory;
 pub mod policy;
 pub mod settings;
 pub mod system;
+pub mod trace;
 
 use egui::{Color32, RichText};
 
@@ -247,6 +250,7 @@ fn central(context: &egui::Context, app: &mut Studio, show_projects: bool) {
                 ui.separator();
             }
             ui.selectable_value(&mut app.tab, Tab::Goals, "Objetivos");
+            ui.selectable_value(&mut app.tab, Tab::Code, "Código");
             if !app.wide {
                 ui.selectable_value(&mut app.tab, Tab::Details, "Detalle");
             }
@@ -257,13 +261,34 @@ fn central(context: &egui::Context, app: &mut Studio, show_projects: bool) {
                 if let Some(project) = app.state.project() {
                     ui.label(RichText::new(&project.base_branch).weak().monospace());
                     ui.label(RichText::new("rama base").weak());
+                    ui.separator();
                 }
+                let active = app
+                    .state
+                    .goals
+                    .iter()
+                    .filter(|goal| matches!(goal.status.as_str(), "pending" | "running"))
+                    .count();
+                let working = app
+                    .state
+                    .tasks
+                    .iter()
+                    .filter(|task| matches!(task.status.as_str(), "running" | "verifying"))
+                    .count();
+                ui.label(
+                    RichText::new(format!(
+                        "{active} objetivos activos · {working} tareas en curso"
+                    ))
+                    .weak()
+                    .small(),
+                );
             });
         });
         ui.separator();
 
         match app.tab {
             Tab::Goals => board::goals(ui, app),
+            Tab::Code => code::panel(ui, app),
             Tab::Details => details::goal(ui, app),
             Tab::Policy => policy::panel(ui, app),
             Tab::Memory => memory::panel(ui, app),
@@ -396,6 +421,11 @@ fn console(context: &egui::Context, app: &mut Studio) {
                     crate::app::ConsoleTab::Events,
                     "Eventos",
                 );
+                ui.selectable_value(
+                    &mut app.console_tab,
+                    crate::app::ConsoleTab::Agent,
+                    "Agente",
+                );
                 let label = if app.terminals.is_empty() {
                     "Terminal".to_string()
                 } else {
@@ -415,6 +445,7 @@ fn console(context: &egui::Context, app: &mut Studio) {
             ui.separator();
             match app.console_tab {
                 crate::app::ConsoleTab::Events => events(ui, app),
+                crate::app::ConsoleTab::Agent => trace::panel(ui, app),
                 crate::app::ConsoleTab::Terminals => {
                     let cwd = app
                         .state

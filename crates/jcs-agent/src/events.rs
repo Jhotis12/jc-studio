@@ -99,6 +99,14 @@ impl AgentEvent {
         self.data.get("delta").and_then(Value::as_str)
     }
 
+    /// Incremental reasoning text, when the provider exposes it.
+    pub fn reasoning_delta(&self) -> Option<&str> {
+        if self.kind != "session.reasoning.delta" {
+            return None;
+        }
+        self.data.get("delta").and_then(Value::as_str)
+    }
+
     /// Cumulative usage, if this event reports any.
     pub fn usage(&self) -> Option<Usage> {
         let cost = self.data.get("cost").and_then(Value::as_f64);
@@ -227,6 +235,16 @@ mod tests {
         assert!((usage.cost_usd - 0.0125).abs() < f64::EPSILON);
         assert_eq!(usage.tokens_in, 40519);
         assert_eq!(usage.tokens_out, 3);
+    }
+
+    #[test]
+    fn extracts_reasoning_deltas_separately_from_text() {
+        let event = AgentEvent::from_frame(frame(
+            r#"{"type":"session.reasoning.delta","data":{"sessionID":"ses_abc","delta":"checking the schema"}}"#,
+        ))
+        .unwrap();
+        assert_eq!(event.reasoning_delta(), Some("checking the schema"));
+        assert_eq!(event.text_delta(), None);
     }
 
     #[test]

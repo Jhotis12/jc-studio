@@ -32,3 +32,6 @@ eframe = { version = "0.31", default-features = false, features = [
     "x11",
 ] }
 egui = "0.31"
+
+[dev-dependencies]
+tempfile = { workspace = true }

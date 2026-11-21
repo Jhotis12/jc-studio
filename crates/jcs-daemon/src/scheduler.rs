@@ -10,6 +10,7 @@
 //!   * no work is dispatched for a project that exceeded its daily budget;
 //!   * a goal's status is derived from its tasks, never written by a task.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -36,17 +37,19 @@ pub fn spawn(state: AppState) -> tokio::task::JoinHandle<()> {
 
         let mut ticker = interval(TICK);
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        // Rotates the goal order so an old objective cannot starve newer ones.
+        let mut offset = 0usize;
 
         loop {
             ticker.tick().await;
-            if let Err(error) = tick(&state, &owner).await {
+            if let Err(error) = tick(&state, &owner, &mut offset).await {
                 tracing::error!(error = %format!("{error:#}"), "scheduler tick failed");
             }
         }
     })
 }
 
-async fn tick(state: &AppState, owner: &str) -> Result<()> {
+async fn tick(state: &AppState, owner: &str, offset: &mut usize) -> Result<()> {
     let expired = state.store.expire_leases().await?;
     state.store.note_expired_leases(expired).await?;
 
@@ -54,7 +57,23 @@ async fn tick(state: &AppState, owner: &str) -> Result<()> {
     // branch that already contains its predecessors.
     merge::tick(state, owner).await?;
 
-    for goal in state.store.active_goals().await? {
+    let mut goals = state.store.active_goals().await?;
+    if !goals.is_empty() {
+        let start = *offset % goals.len();
+        goals.rotate_left(start);
+        *offset = (*offset + 1) % goals.len();
+    }
+
+    // Fair share: every active goal gets a slice of the total capacity. The remainder is
+    // not reassigned in this tick, which is deliberate: a goal that is still planning must
+    // find capacity when its plan arrives instead of waiting for the first goal to finish.
+    let per_goal = (state.runtime.max_concurrent() as usize / goals.len().max(1)).max(1);
+
+    // Claims of everything running, per project, including tasks dispatched earlier in this
+    // same tick for another goal.
+    let mut claims: HashMap<String, Vec<Vec<String>>> = HashMap::new();
+
+    for goal in goals {
         let Some(project) = state.store.get_project(&goal.project_id).await? else {
             continue;
         };
@@ -80,12 +99,16 @@ async fn tick(state: &AppState, owner: &str) -> Result<()> {
             continue;
         }
 
-        if counts.in_flight() > 0 {
-            continue;
-        }
-
+        // Independent tasks of the same goal must be able to run together. The semaphore
+        // bounds total concurrency and the path claims prevent two tasks from touching the
+        // same files; "one in flight" was a leftover that serialised every plan.
         if let Some(reason) = budget_block(state, &project).await? {
-            block_goal(state, &goal, &reason).await?;
+            if counts.in_flight() == 0 {
+                // Nothing was paid for yet: park the goal and record the reason.
+                block_goal(state, &goal, &reason).await?;
+            }
+            // Work already in flight is allowed to finish. The ceiling gates new dispatch,
+            // it must not turn a running task into a blocked goal mid-run.
             continue;
         }
 
@@ -93,7 +116,24 @@ async fn tick(state: &AppState, owner: &str) -> Result<()> {
         // blocked goal from a base that later moves leaves it permanently divergent.
         merge::ensure_integration_branch(state, &goal, &project, counts.total).await?;
 
-        dispatch(state, owner, &goal, &project).await?;
+        let remaining = per_goal.saturating_sub(counts.in_flight().max(0) as usize);
+        if remaining == 0 {
+            continue;
+        }
+
+        let project_claims = match claims.entry(project.id.to_string()) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::hash_map::Entry::Vacant(entry) => entry.insert(
+                state
+                    .store
+                    .in_flight_tasks(&project.id)
+                    .await?
+                    .into_iter()
+                    .map(|task| task.path_claims)
+                    .collect(),
+            ),
+        };
+        dispatch(state, owner, &goal, project_claims, remaining).await?;
     }
 
     Ok(())
@@ -234,7 +274,13 @@ async fn finalize_goal(
     Ok(())
 }
 
-async fn dispatch(state: &AppState, owner: &str, goal: &Goal, project: &Project) -> Result<()> {
+async fn dispatch(
+    state: &AppState,
+    owner: &str,
+    goal: &Goal,
+    claimed: &mut Vec<Vec<String>>,
+    max_tasks: usize,
+) -> Result<()> {
     let ready = state.store.ready_tasks(&goal.id).await?;
     if ready.is_empty() {
         return Ok(());
@@ -246,19 +292,14 @@ async fn dispatch(state: &AppState, owner: &str, goal: &Goal, project: &Project)
         _ => PermissionMode::Auto,
     };
 
-    // Claims of everything already running in this project, including other goals.
-    let mut claimed: Vec<Vec<String>> = state
-        .store
-        .in_flight_tasks(&project.id)
-        .await?
-        .into_iter()
-        .map(|task| task.path_claims)
-        .collect();
-
     let ttl = Duration::from_secs(state.config.lease_ttl_secs);
+    let mut dispatched = 0usize;
 
     for task in ready {
-        if claims_conflict(&task.path_claims, &claimed) {
+        if dispatched >= max_tasks {
+            break;
+        }
+        if claims_conflict(&task.path_claims, claimed) {
             tracing::debug!(
                 task = %task.id,
                 claims = ?task.path_claims,
@@ -304,6 +345,7 @@ async fn dispatch(state: &AppState, owner: &str, goal: &Goal, project: &Project)
         );
 
         claimed.push(task.path_claims.clone());
+        dispatched += 1;
     }
 
     Ok(())
@@ -336,22 +378,7 @@ pub fn claims_conflict(a: &[String], b: &[Vec<String>]) -> bool {
 }
 
 fn paths_overlap(left: &str, right: &str) -> bool {
-    let left = left.trim_end_matches('/');
-    let right = right.trim_end_matches('/');
-
-    if left.is_empty() || right.is_empty() {
-        // An empty claim says nothing about what the task touches; treat it as
-        // conflicting with everything so it cannot silently race another task.
-        return true;
-    }
-
-    left == right
-        || left
-            .strip_prefix(right)
-            .is_some_and(|rest| rest.starts_with('/'))
-        || right
-            .strip_prefix(left)
-            .is_some_and(|rest| rest.starts_with('/'))
+    jcs_core::claims::paths_overlap(left, right)
 }
 
 #[cfg(test)]

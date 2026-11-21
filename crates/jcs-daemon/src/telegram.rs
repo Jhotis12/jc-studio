@@ -20,8 +20,8 @@ const TELEGRAM_API: &str = "https://api.telegram.org";
 
 /// Starts the bot when a token and at least one chat are configured.
 pub fn spawn(state: AppState) -> Option<tokio::task::JoinHandle<()>> {
-    let token = state.config.telegram_token.clone()?;
-    let chats = state.config.telegram_chat_ids.clone();
+    let token = state.secrets.telegram_token()?;
+    let chats = state.runtime.telegram_chat_ids();
     if chats.is_empty() {
         tracing::warn!("JCS_TELEGRAM_TOKEN set but no chat ids; the bot stays off");
         return None;

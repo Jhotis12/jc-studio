@@ -441,6 +441,8 @@ mod tests {
             branch: None,
             session_id: None,
             depends_on: Vec::new(),
+            path_claims: Vec::new(),
+            merged_at: None,
             created_at: test_timestamp(),
             updated_at: test_timestamp(),
         }

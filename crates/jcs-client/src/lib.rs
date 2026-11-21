@@ -183,6 +183,12 @@ impl Client {
         self.post("/gates/run", request).await
     }
 
+    /// Bounded event history for one task, oldest first.
+    pub async fn task_events(&self, task: &str, limit: i64) -> Result<Vec<jcs_core::Event>> {
+        self.get(&format!("/tasks/{task}/events?limit={limit}"))
+            .await
+    }
+
     /// Bounded event history. With `since = None` it returns the most recent events.
     pub async fn event_history(
         &self,

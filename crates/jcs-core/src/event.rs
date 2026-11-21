@@ -73,6 +73,9 @@ event_kinds! {
     AgentStepFinished => "agent_step_finished",
     // Chunks of assistant text are aggregated per step, never persisted per token.
     AgentText => "agent_text",
+    // The model's reasoning stream, when the provider exposes it. Separate from the answer
+    // so the interface can show it as "thinking" instead of mixing it with the output.
+    AgentReasoning => "agent_reasoning",
     AgentToolCalled => "agent_tool_called",
     AgentToolFinished => "agent_tool_finished",
     AgentUsage => "agent_usage",

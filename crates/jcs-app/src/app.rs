@@ -15,6 +15,7 @@ use jcs_proto::paths;
 pub enum ConsoleTab {
     #[default]
     Events,
+    Agent,
     Terminals,
 }
 
@@ -23,6 +24,7 @@ pub enum ConsoleTab {
 pub enum Tab {
     #[default]
     Goals,
+    Code,
     Details,
     Policy,
     Memory,
@@ -52,6 +54,9 @@ pub struct GlobalForm {
     pub context_tokens: String,
     pub max_repair_cycles: String,
     pub max_concurrent: String,
+    pub telegram_token: String,
+    pub telegram_chat_ids: String,
+    pub clear_telegram_token: bool,
 }
 
 impl Default for GlobalForm {
@@ -67,7 +72,10 @@ impl Default for GlobalForm {
             run_timeout_secs: "900".to_string(),
             context_tokens: "1500".to_string(),
             max_repair_cycles: "2".to_string(),
-            max_concurrent: "2".to_string(),
+            max_concurrent: "4".to_string(),
+            telegram_token: String::new(),
+            telegram_chat_ids: String::new(),
+            clear_telegram_token: false,
         }
     }
 }
@@ -86,6 +94,14 @@ impl GlobalForm {
             context_tokens: view.context_tokens.to_string(),
             max_repair_cycles: view.max_repair_cycles.to_string(),
             max_concurrent: view.max_concurrent.to_string(),
+            telegram_token: String::new(),
+            telegram_chat_ids: view
+                .telegram_chat_ids
+                .iter()
+                .map(i64::to_string)
+                .collect::<Vec<_>>()
+                .join(", "),
+            clear_telegram_token: false,
         }
     }
 
@@ -102,8 +118,36 @@ impl GlobalForm {
             context_tokens: Some(number(&self.context_tokens, "el contexto")?),
             max_repair_cycles: Some(number(&self.max_repair_cycles, "los ciclos de reparación")?),
             max_concurrent: Some(number(&self.max_concurrent, "la concurrencia")?),
+            telegram_token: if self.clear_telegram_token {
+                Some(String::new())
+            } else {
+                let token = self.telegram_token.trim();
+                (!token.is_empty()).then(|| token.to_string())
+            },
+            telegram_chat_ids: Some(parse_chat_ids(&self.telegram_chat_ids)?),
         })
     }
+}
+
+/// Accepts commas, spaces or both between chat ids.
+fn parse_chat_ids(value: &str) -> Result<Vec<i64>, String> {
+    let mut ids = Vec::new();
+    for part in value.split(|character: char| character == ',' || character.is_whitespace()) {
+        if part.is_empty() {
+            continue;
+        }
+        let id = part
+            .parse::<i64>()
+            .map_err(|_| format!("chat id inválido: {part}"))?;
+        if id == 0 {
+            return Err("los chat ids no pueden ser cero".to_string());
+        }
+        ids.push(id);
+    }
+    if ids.len() > 20 {
+        return Err("como máximo 20 chats".to_string());
+    }
+    Ok(ids)
 }
 
 fn number(value: &str, label: &str) -> Result<u64, String> {
@@ -140,14 +184,21 @@ pub struct Studio {
     pub global_form: GlobalForm,
     pub settings_synced: bool,
     pub confirm_remove: bool,
+    pub confirm_restart: bool,
     pub memory_query: String,
     /// Whether the window is wide enough for the three-panel layout.
     pub wide: bool,
 
     /// Project whose policy and memory are already loaded, to avoid a request per frame.
     loaded_project: Option<String>,
+    /// Task whose historical trace was already requested.
+    loaded_task_events: Option<String>,
+    /// Goal for which a task was selected automatically once.
+    auto_task_for: Option<String>,
     /// Terminal sessions, one per open tab.
     pub terminals: crate::terminal::Terminals,
+    /// File tree, editor and task diff.
+    pub code: crate::ui::code::CodeState,
 }
 
 impl Studio {
@@ -173,26 +224,101 @@ impl Studio {
             global_form: GlobalForm::default(),
             settings_synced: false,
             confirm_remove: false,
+            confirm_restart: false,
             memory_query: String::new(),
             wide: true,
             loaded_project: None,
+            loaded_task_events: None,
+            auto_task_for: None,
             terminals: crate::terminal::Terminals::default(),
+            code: crate::ui::code::CodeState::default(),
         }
     }
 
     pub fn select_project(&mut self, id: String) {
         self.state.selected_project = Some(id);
         self.state.selected_goal = None;
+        self.state.selected_task = None;
         self.state.auto_selected = false;
         self.state.run_detail = None;
     }
 
     pub fn select_goal(&mut self, id: String) {
         self.state.selected_goal = Some(id);
+        self.state.selected_task = None;
+        self.auto_task_for = None;
         self.state.run_detail = None;
         // On a narrow window the detail is a tab, so selecting a goal must reveal it.
         if !self.wide {
             self.tab = Tab::Details;
+        }
+    }
+
+    /// Selects a task and loads its historical trace once. Live events keep it current.
+    /// Selects a task and brings its live trace to the front. Used by the graph and the
+    /// per-task buttons, so "how is this task going" is one click away.
+    pub fn focus_task(&mut self, goal: String, task: String) {
+        self.select_goal(goal);
+        self.select_task(task);
+        self.console_tab = ConsoleTab::Agent;
+        self.show_console = true;
+        if !self.wide {
+            self.tab = Tab::Details;
+        }
+    }
+
+    pub fn select_task(&mut self, id: String) {
+        self.state.selected_task = Some(id.clone());
+        if self.loaded_task_events.as_deref() != Some(id.as_str()) {
+            self.loaded_task_events = Some(id.clone());
+            self.daemon.send(Command::TaskEvents { task: id });
+        }
+    }
+
+    /// Keyboard navigation that matters while working: switch workspace, settings, console.
+    fn shortcuts(&mut self, context: &egui::Context) {
+        let pressed =
+            |key| context.input(|input| input.modifiers.command && input.key_pressed(key));
+        if pressed(egui::Key::Num1) {
+            self.tab = Tab::Goals;
+        } else if pressed(egui::Key::Num2) {
+            self.tab = Tab::Code;
+        } else if pressed(egui::Key::Num3) {
+            self.tab = Tab::Policy;
+        } else if pressed(egui::Key::Num4) {
+            self.tab = Tab::Memory;
+        } else if pressed(egui::Key::Num5) {
+            self.tab = Tab::System;
+        }
+        if pressed(egui::Key::Comma) {
+            self.open_settings();
+        }
+        if pressed(egui::Key::J) {
+            self.show_console = !self.show_console;
+        }
+    }
+
+    /// Picks the active task of a selected goal once, so the agent trace has a subject
+    /// without an extra click. Never fights an explicit selection.
+    fn sync_task(&mut self) {
+        let Some(goal_id) = self.state.selected_goal.clone() else {
+            return;
+        };
+        if self.state.selected_task.is_some()
+            || self.auto_task_for.as_deref() == Some(goal_id.as_str())
+        {
+            return;
+        }
+        self.auto_task_for = Some(goal_id.clone());
+        let tasks = self.state.goal_tasks(&goal_id);
+        let chosen = tasks
+            .iter()
+            .find(|task| matches!(task.status.as_str(), "running" | "verifying"))
+            .or_else(|| tasks.iter().find(|task| task.status == "pending"))
+            .or_else(|| tasks.first())
+            .map(|task| task.id.clone());
+        if let Some(id) = chosen {
+            self.select_task(id);
         }
     }
 
@@ -334,7 +460,9 @@ impl eframe::App for Studio {
         for update in self.daemon.poll() {
             self.state.apply(update);
         }
+        self.shortcuts(context);
         self.sync_project();
+        self.sync_task();
         self.terminals.poll();
         crate::ui::shell(context, self);
         crate::ui::windows(context, self);
@@ -394,6 +522,9 @@ mod tests {
             max_repair_cycles: 3,
             max_concurrent: 4,
             restart_required: Vec::new(),
+            telegram_chat_ids: vec![42],
+            telegram_configured: true,
+            telegram_token_hint: Some("abcd".to_string()),
         };
         let form = GlobalForm::from_view(&view);
         let patch = form.patch().unwrap();
@@ -405,6 +536,8 @@ mod tests {
         assert_eq!(patch.risk_max_lines, Some(250));
         assert_eq!(patch.context_tokens, Some(0));
         assert_eq!(patch.max_concurrent, Some(4));
+        assert_eq!(patch.telegram_chat_ids, Some(vec![42]));
+        assert!(patch.telegram_token.is_none());
     }
 
     #[test]
@@ -414,6 +547,14 @@ mod tests {
             ..GlobalForm::default()
         };
         assert!(form.patch().is_err());
+    }
+
+    #[test]
+    fn telegram_chat_ids_accept_separators_and_reject_junk() {
+        assert_eq!(parse_chat_ids("1, 2  3"), Ok(vec![1, 2, 3]));
+        assert_eq!(parse_chat_ids(""), Ok(Vec::new()));
+        assert!(parse_chat_ids("1, cero").is_err());
+        assert!(parse_chat_ids("0").is_err());
     }
 
     #[test]

@@ -57,7 +57,7 @@ impl Config {
             socket_path: paths::socket_path(),
             db_path: paths::database_path(),
             worktrees_dir: paths::worktrees_dir(),
-            max_concurrent: env_parse("JCS_MAX_CONCURRENT").unwrap_or(2).max(1),
+            max_concurrent: env_parse("JCS_MAX_CONCURRENT").unwrap_or(4).max(1),
             default_model: env_non_empty("JCS_MODEL"),
             default_agent: env_non_empty("JCS_AGENT"),
             allow_shell: matches!(

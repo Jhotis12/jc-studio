@@ -5,6 +5,7 @@
 //! isolation. Persistence lives in `jcs-store`; orchestration in `jcs-daemon`.
 
 pub mod boundaries;
+pub mod claims;
 pub mod error;
 pub mod event;
 pub mod ids;

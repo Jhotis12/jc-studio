@@ -63,6 +63,10 @@ e2e-memory:
 app:
     cargo run -p jcs-app
 
+# Two objectives making progress at the same time under fair sharing
+e2e-multigoal:
+    ./scripts/e2e-multigoal.sh
+
 # Budget stop, audit, resume and leak checks
 soak:
     ./scripts/soak.sh

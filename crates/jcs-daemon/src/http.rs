@@ -16,7 +16,8 @@ use axum::{Json, Router};
 use bytes::Bytes;
 use futures_util::stream;
 use jcs_core::{
-    EventKind, Goal, GoalStatus, NewEvent, Project, ProjectId, RunStatus, StatusMachine, TaskStatus,
+    EventKind, Goal, GoalStatus, NewEvent, Project, ProjectId, RunStatus, StatusMachine, TaskId,
+    TaskStatus,
 };
 use jcs_proto::{
     AddProjectRequest, AskRequest, AskResponse, ErrorBody, GateOutcomeView, GateRunRequest,
@@ -43,6 +44,7 @@ pub fn router(state: AppState) -> Router {
         .route("/projects/{id}", delete(remove_project).put(update_project))
         .route("/goals", get(list_goals))
         .route("/tasks", get(list_tasks))
+        .route("/tasks/{id}/events", get(task_events))
         .route("/runs", get(list_runs))
         .route("/runs/{id}", get(run_detail))
         .route("/ask", post(ask))
@@ -160,7 +162,7 @@ async fn status(State(state): State<AppState>) -> ApiResult<Json<StatusResponse>
         health,
         projects: projects.iter().map(project_view).collect(),
         goals: goals.iter().map(goal_view).collect(),
-        tasks: tasks.iter().map(task_view).collect(),
+        tasks: task_views(&state, &tasks).await?,
         runs: runs.iter().map(run_view).collect(),
         totals,
     }))
@@ -452,6 +454,24 @@ async fn fail_planning(state: &AppState, goal: &Goal, reason: &str) {
     if let Err(error) = jcs_store::append_event(&state.store, event).await {
         tracing::warn!(error = %error, "cannot record the planning failure");
     }
+}
+
+/// Bounded event history for one task, used by the interface to reconstruct the agent's
+/// trace when it connects after the task started.
+async fn task_events(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<TaskEventsQuery>,
+) -> ApiResult<Json<Vec<jcs_core::Event>>> {
+    let id = TaskId::parse(id)?;
+    let events = jcs_store::events_for_task(&state.store, &id, query.limit.unwrap_or(500)).await?;
+    Ok(Json(events))
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskEventsQuery {
+    #[serde(default)]
+    limit: Option<i64>,
 }
 
 async fn abort(
@@ -755,17 +775,8 @@ async fn goal_detail(
 
     let tasks = state.store.list_tasks_by_goal(&goal_id).await?;
     let mut runs = Vec::new();
-    let mut views = Vec::with_capacity(tasks.len());
+    let views = task_views(&state, &tasks).await?;
     for task in &tasks {
-        let mut view = task_view(task);
-        view.depends_on = state
-            .store
-            .task_dependencies(&task.id)
-            .await?
-            .iter()
-            .map(|id| id.to_string())
-            .collect();
-        views.push(view);
         runs.extend(state.store.list_runs_by_task(&task.id).await?);
     }
     runs.sort_by_key(|run| std::cmp::Reverse(run.started_at));
@@ -827,7 +838,15 @@ async fn catalog_models(State(state): State<AppState>) -> ApiResult<Json<Vec<Mod
 }
 
 async fn settings(State(state): State<AppState>) -> Json<SettingsView> {
-    Json(state.runtime.view())
+    Json(settings_view(&state))
+}
+
+/// The view never contains a token: only whether one exists and its last four characters.
+fn settings_view(state: &AppState) -> SettingsView {
+    let mut view = state.runtime.view();
+    view.telegram_configured = state.secrets.telegram_token().is_some();
+    view.telegram_token_hint = state.secrets.telegram_hint();
+    view
 }
 
 /// Applies a partial update, persists it and records who changed what.
@@ -838,10 +857,19 @@ async fn update_settings(
     State(state): State<AppState>,
     Json(patch): Json<SettingsPatch>,
 ) -> ApiResult<Json<SettingsView>> {
-    let (values, changed) = state
+    let (values, mut changed) = state
         .runtime
         .update(&patch)
         .map_err(|message| ApiError::bad_request("invalid_settings", message))?;
+
+    if let Some(token) = &patch.telegram_token {
+        state
+            .secrets
+            .set_telegram_token((!token.trim().is_empty()).then(|| token.clone()))
+            .map_err(|message| ApiError::bad_request("invalid_secret", message))?;
+        changed.push("telegram_token".to_string());
+        state.runtime.require_restart("telegram");
+    }
 
     if !changed.is_empty() {
         // One row, complete values: a partial row would be worse than no row. The event
@@ -855,7 +883,7 @@ async fn update_settings(
         jcs_store::append_event(state.store.as_ref(), event).await?;
     }
 
-    Ok(Json(state.runtime.view()))
+    Ok(Json(settings_view(&state)))
 }
 
 /// Prometheus-style text metrics.
@@ -1144,9 +1172,29 @@ fn task_view(task: &jcs_core::Task) -> TaskView {
         branch: task.branch.clone(),
         session_id: task.session_id.clone(),
         depends_on: Vec::new(),
+        path_claims: task.path_claims.clone(),
+        merged_at: None,
         created_at: task.created_at,
         updated_at: task.updated_at,
     }
+}
+
+/// Adds the relationships the interface needs (dependencies and integration state).
+async fn task_views(state: &AppState, tasks: &[jcs_core::Task]) -> ApiResult<Vec<TaskView>> {
+    let mut views = Vec::with_capacity(tasks.len());
+    for task in tasks {
+        let mut view = task_view(task);
+        view.depends_on = state
+            .store
+            .task_dependencies(&task.id)
+            .await?
+            .iter()
+            .map(|id| id.to_string())
+            .collect();
+        view.merged_at = state.store.task_merged_at(&task.id).await?;
+        views.push(view);
+    }
+    Ok(views)
 }
 
 fn run_view(run: &jcs_core::Run) -> RunView {
@@ -1213,6 +1261,7 @@ mod tests {
             Arc::new(jcs_policy::loader::builtin_packs().unwrap()),
             None,
             runtime,
+            Arc::new(crate::secrets::Secrets::in_memory(None)),
         )
     }
 
@@ -1334,6 +1383,33 @@ mod tests {
             ),
             "create a file named hello.md containing"
         );
+    }
+
+    #[tokio::test]
+    async fn the_telegram_token_is_write_only() {
+        let state = test_state().await;
+        let app = router(state);
+        let (status, body) = send(
+            app.clone(),
+            "PUT",
+            "/settings",
+            Some(r#"{"telegram_token":"fixture-token-abcd","telegram_chat_ids":[42]}"#),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["telegram_configured"], true);
+        assert_eq!(body["telegram_token_hint"], "abcd");
+        assert!(!body.to_string().contains("fixture-token"), "{body}");
+        assert!(body["restart_required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "telegram"));
+
+        let (status, body) = send(app, "GET", "/settings", None).await;
+        assert_eq!(status, 200);
+        assert_eq!(body["telegram_chat_ids"][0], 42);
+        assert!(!body.to_string().contains("fixture-token"), "{body}");
     }
 
     #[tokio::test]

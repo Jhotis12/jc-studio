@@ -252,12 +252,15 @@ El cliente principal es una **app de escritorio instalable** (egui), orientada a
 con terminales embebidas. El daemon sigue siendo un servicio de usuario; la app se conecta
 a él por el mismo socket que el CLI.
 
-- Proyectos y objetivos: compositor, DAG, estados, coste y tokens.
-- Detalle por objetivo: tareas, dependencias, ejecuciones, gates y reanudación.
+- Proyectos y objetivos: compositor, varios objetivos a la vez, reparto justo de capacidad.
+- Detalle por objetivo: **progreso por tarea**, grafo del plan, ejecuciones, gates y
+  reanudación. Las tareas que esperan explican por qué (dependencia, rutas o turno).
+- Traza del agente: razonamiento, respuesta, herramientas y gates en vivo por tarea.
+- Código: árbol de archivos, editor con guardado, archivos nuevos y diff del worktree.
 - Política: packs, reglas, gates, drift y ejecución manual.
 - Memoria: estadísticas, indexación y búsqueda con citas.
-- Ajustes: modelos, revisión, riesgo, timeout, contexto, reparación y concurrencia; por
-  proyecto, auto-merge y presupuestos. Validación y auditoría en el daemon.
+- Ajustes: modelos, revisión, riesgo, timeout, contexto, reparación, concurrencia y Telegram;
+  por proyecto, auto-merge y presupuestos. Validación y auditoría en el daemon.
 - Terminales reales (PTY) por proyecto o por worktree de tarea, dentro de la ventana.
 
 ```bash
@@ -267,8 +270,9 @@ cargo run -p jcs-app        # ventana de desarrollo
 Instalada: `jc-studio`. Requiere una sesión gráfica (Wayland o X11) y el daemon vivo; la app
 reintenta la conexión cada dos segundos y no pierde trabajo al cerrarse.
 
-Pendiente de la Fase 8: mover el PTY al daemon para que las terminales sobrevivan al cierre,
-secretos en el llavero, catálogos de modelos/agentes y `.deb`/AppImage.
+Pendiente de la Fase 8: chat nativo con OpenCode, mover el PTY al daemon para que las
+terminales sobrevivan al cierre, resaltado de sintaxis y commit desde el editor, secretos en
+el llavero (hoy archivo 0600) y `.deb`/AppImage.
 
 ## Arquitectura
 
@@ -303,6 +307,7 @@ just e2e-merge  # DAG + integración + promoción a la rama base
 just e2e-memory # índice, búsqueda con cita y contexto inyectado
 just chaos      # kill -9 a mitad de run y recuperación
 just soak       # techo de presupuesto, auditoría, reanudación y fugas
+just e2e-multigoal # dos objetivos a la vez, reparto justo, sin locks
 just audit      # licencias y avisos de dependencias
 ```
 

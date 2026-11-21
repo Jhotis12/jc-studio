@@ -2074,6 +2074,7 @@ dependencies = [
  "jiff",
  "portable-pty",
  "serde_json",
+ "tempfile",
  "tokio",
  "vt100",
 ]

@@ -54,14 +54,43 @@ CLI y reintenta cada dos segundos si el daemon no está.
 | Detalle | Tareas, dependencias, ejecuciones, gates y reanudación |
 | Política | Packs, reglas, gates, drift y ejecución manual |
 | Memoria | Estadísticas, indexación y búsqueda con citas |
+| Código | Árbol de archivos, editor, archivos nuevos y diff del worktree |
 | Sistema | Salud del daemon, rutas y totales |
-| Consola | Eventos en vivo y terminales reales (PTY) |
+| Consola | Eventos, traza del agente y terminales reales (PTY) |
 
 Los **ajustes** se editan en la ventana «Ajustes»: modelos (con un selector que muestra el
 precio de cada uno), agente, revisión, techo de riesgo, timeout, contexto, reparación y
-concurrencia; por proyecto, auto-merge y presupuestos. El daemon valida, guarda en la base y registra `settings_changed`. Las
+concurrencia; por proyecto, auto-merge y presupuestos.
+
+**Telegram** también se configura ahí: token (write-only), chats permitidos y estado
+«configurado · …abcd». El token se guarda en `~/.local/share/jcs/secrets.json` con permisos
+0600, no en SQLite; la API nunca lo devuelve. Se aplica al reiniciar `jcsd` (botón
+«Reiniciar jcsd»). Sin chats permitidos el bot no responde a nadie. El daemon valida, guarda en la base y registra `settings_changed`. Las
 variables de entorno son el **valor inicial**; a partir de ahí manda lo guardado. Cambiar
 la concurrencia requiere reiniciar `jcsd` (la app lo avisa).
+
+### Varios objetivos a la vez
+
+El daemon reparte la capacidad entre los objetivos activos
+(`max_concurrent / objetivos`, mínimo 1) y rota el orden para que ninguno acapare. Un
+objetivo con tareas en vuelo puede seguir; el techo de presupuesto solo impide despachar
+trabajo nuevo.
+
+Las tareas con **claims de rutas solapados** no corren juntas: la app muestra «espera: …
+trabaja en las mismas rutas». Las que no declaran rutas se consideran en conflicto con todo
+lo que esté corriendo (conservador). Si dos objetivos tocan lo mismo, el segundo espera o,
+al promocionar, se rebasa y se re-verifica; un conflicto bloquea el objetivo, no lo falla.
+
+Para subir la concurrencia: **Ajustes → Concurrencia máxima → Guardar → Reiniciar jcsd**.
+Reiniciar interrumpe las ejecuciones en curso (quedan `interrupted` y sus tareas
+`blocked`); el trabajo ya confirmado no se pierde.
+
+### Terminales y código
+
+**Código** abre el repositorio o el worktree de la tarea seleccionada. El editor guarda con
+`Ctrl+S`, protege los cambios sin guardar al cambiar de archivo y muestra el diff del
+worktree contra la rama base. La primera pasada no tiene resaltado de sintaxis ni commit
+desde la UI; para eso está el terminal.
 
 Las terminales viven en el proceso de la app: cerrar la ventana las termina. Mover el PTY
 al daemon está pendiente y se documenta como tal; no cierres la ventana en mitad de un
@@ -79,7 +108,7 @@ para automatización; lo guardado desde la interfaz tiene prioridad.
 |---|---|---|
 | `JCS_SOCKET` | `$XDG_RUNTIME_DIR/jcs/jcsd.sock` | Socket del daemon |
 | `JCS_DB` | `$XDG_DATA_HOME/jcs/jcs.db` | Base de datos |
-| `JCS_MAX_CONCURRENT` | `2` | Tareas simultáneas |
+| `JCS_MAX_CONCURRENT` | `4` | Tareas simultáneas (la app lo reparte entre objetivos) |
 | `JCS_MODEL` | — | Modelo por defecto (`provider/model`) |
 | `JCS_PLANNING_MODEL` | `JCS_MODEL` | Modelo del planificador |
 | `JCS_REVIEW` | `0` | Revisor con rúbrica (duplica coste) |
@@ -129,7 +158,8 @@ en el worktree (`git worktree list`), o descarta la tarea, y reanuda.
 `$XDG_DATA_HOME/jcs/worktrees`.
 
 **Backup.** `sqlite3 ~/.local/share/jcs/jcs.db "VACUUM INTO '/ruta/backup.db'"` con el daemon
-parado, o usa el endpoint de backup desde código. Restaurar = parar, reemplazar el archivo,
+parado, o usa el endpoint de backup desde código. Copia también `~/.local/share/jcs/secrets.json`
+(0600) si quieres conservar el token de Telegram. Restaurar = parar, reemplazar los archivos,
 arrancar.
 
 **Socket bloqueado.** Si `jcs doctor` dice que no conecta y el proceso no existe, el daemon lo

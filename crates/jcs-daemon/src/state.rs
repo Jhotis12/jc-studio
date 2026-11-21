@@ -10,6 +10,7 @@ use tokio::sync::{OnceCell, Semaphore};
 
 use crate::config::Config;
 use crate::error::ApiError;
+use crate::secrets::Secrets;
 use crate::settings::RuntimeSettings;
 
 /// Lazily discovered backend client.
@@ -64,6 +65,8 @@ pub struct AppState {
     pub permits: Arc<Semaphore>,
     /// Values the operator can change from the interface.
     pub runtime: Arc<RuntimeSettings>,
+    /// Secrets, kept out of the database and out of the API.
+    pub secrets: Arc<Secrets>,
 }
 
 impl AppState {
@@ -73,6 +76,7 @@ impl AppState {
         packs: Arc<BTreeMap<String, Pack>>,
         embeddings: Option<Arc<Embeddings>>,
         runtime: Arc<RuntimeSettings>,
+        secrets: Arc<Secrets>,
     ) -> Self {
         let permits = Arc::new(Semaphore::new(
             runtime.max_concurrent().try_into().unwrap_or(1),
@@ -88,6 +92,7 @@ impl AppState {
             started_at_ms: jiff::Timestamp::now().as_millisecond(),
             permits,
             runtime,
+            secrets,
         }
     }
 

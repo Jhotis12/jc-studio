@@ -52,12 +52,21 @@ impl Store {
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)
             .foreign_keys(true)
-            .busy_timeout(Duration::from_secs(5))
+            .busy_timeout(Duration::from_secs(30))
             .log_statements(tracing::log::LevelFilter::Trace);
 
+        // One connection, deliberately. Several write transactions in this crate start by
+        // reading the current row and then write (status transitions, run attempts). SQLite
+        // cannot wait on a deferred transaction that upgrades from read to write: it returns
+        // SQLITE_BUSY immediately instead of invoking the busy handler. With four agents
+        // emitting events, that surfaced as "database is locked" and failed real tasks.
+        //
+        // SQLite has a single writer anyway. Serialising through one connection removes the
+        // upgrade race without changing semantics; reads are fast and the WAL still lets
+        // external readers (the CLI, `sqlite3`) observe a consistent snapshot.
         let pool = SqlitePoolOptions::new()
-            .max_connections(8)
-            .acquire_timeout(Duration::from_secs(10))
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(30))
             .connect_with(options)
             .await?;
 
@@ -189,4 +198,37 @@ pub(crate) fn decode_ts(value: &str) -> Result<Timestamp> {
         table: "timestamp",
         detail: format!("{value:?}: {e}"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn concurrent_appends_do_not_lock_the_database() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("jcs.db")).await.unwrap());
+
+        let mut writers = Vec::new();
+        for writer in 0..8 {
+            let store = store.clone();
+            writers.push(tokio::spawn(async move {
+                for index in 0..20 {
+                    let event = jcs_core::NewEvent::new(jcs_core::EventKind::DaemonStarted)
+                        .payload(serde_json::json!({
+                            "writer": writer,
+                            "index": index,
+                        }));
+                    append_event(store.as_ref(), event).await.unwrap();
+                }
+            }));
+        }
+        for writer in writers {
+            writer.await.unwrap();
+        }
+
+        let events = crate::recent_events(store.as_ref(), 1000).await.unwrap();
+        assert_eq!(events.len(), 160);
+    }
 }

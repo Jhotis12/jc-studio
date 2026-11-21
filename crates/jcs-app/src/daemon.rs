@@ -77,6 +77,9 @@ pub enum Command {
     RunDetail {
         run: String,
     },
+    TaskEvents {
+        task: String,
+    },
 }
 
 /// Facts the daemon reports back to the interface.
@@ -95,6 +98,7 @@ pub enum Update {
     MemoryStats(MemoryStatsView),
     MemorySearch(MemorySearchResponse),
     RunDetail(Box<RunDetailResponse>),
+    TaskHistory(Vec<Event>),
     GoalAction(GoalActionResponse),
     Project(ProjectView),
     Settings(jcs_proto::SettingsView),
@@ -172,6 +176,11 @@ async fn connection_loop(
         // asking on each frame.
         if let Ok(models) = client.models().await {
             let _ = updates.send(Update::Models(models));
+        }
+        // The settings carry the effective concurrency, used to explain why a pending task
+        // is not running yet.
+        if let Ok(settings) = client.settings().await {
+            let _ = updates.send(Update::Settings(settings));
         }
 
         if !seeded {
@@ -422,6 +431,12 @@ async fn handle(client: &Client, updates: &Sender<Update>, command: Command) {
                 }
             });
         }
+        Command::TaskEvents { task } => match client.task_events(&task, 500).await {
+            Ok(events) => {
+                let _ = updates.send(Update::TaskHistory(events));
+            }
+            Err(error) => notice(updates, error, "no se pudo leer la actividad de la tarea"),
+        },
         Command::RunDetail { run } => match client.run_detail(&run).await {
             Ok(detail) => {
                 let _ = updates.send(Update::RunDetail(Box::new(detail)));

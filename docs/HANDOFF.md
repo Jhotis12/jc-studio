@@ -20,18 +20,18 @@ en paralelo con leases, las verifica con gates, las integra en una rama de objet
 promociona a la base; indexa el código, le pasa al agente contexto citado y la app de
 escritorio permite operar todo sin tocar la consola.
 
-- 12 crates, **305 tests**, árbol limpio.
+- 12 crates, **322 tests**, árbol limpio.
 - `cargo fmt --check`, `cargo clippy -D warnings`, `cargo nextest`, `cargo deny check`:
   todo en verde.
 - Soak verde; tarball Linux con `jcsd`, `jcs` y `jc-studio` (`./scripts/package.sh`).
-- Lo que queda de la Fase 8: PTY en el daemon, secretos en el llavero, catálogos de modelos
-  y `.deb`/AppImage.
+- Lo que queda de la Fase 8: chat nativo con OpenCode, PTY en el daemon, resaltado de
+  sintaxis/búsqueda/commit en el editor, llavero del sistema y `.deb`/AppImage.
 
 ## Verificación en 60 segundos
 
 ```bash
 cargo build --bins
-cargo nextest run --workspace        # 305 tests
+cargo nextest run --workspace        # 322 tests
 python3 scripts/check_contract.py    # contrato de OpenCode
 cargo deny check                     # licencias y avisos
 ```
@@ -47,6 +47,7 @@ just e2e-merge    # DAG + integración + promoción a main
 just e2e-memory   # índice + búsqueda citada + contexto en el prompt
 just chaos        # kill -9 a mitad de run y recuperación
 just soak         # presupuesto, auditoría, reanudación y fugas
+just e2e-multigoal # dos objetivos a la vez, reparto justo, sin locks
 cargo test -p jcs-app                 # estado de la app y PTY real
 ```
 
@@ -100,18 +101,19 @@ detalle, política, memoria, ajustes, eventos y terminales.
 
 Orden recomendado. Cada paso es un commit que compila y con tests:
 
-1. **PTY en el daemon.** Endpoints `/pty` (crear), `/pty/{id}/input`, `/pty/{id}/resize`,
-   `/pty/{id}/stream` y `/pty/{id}` (cerrar), con una sesión por id y limpieza al salir.
-   La app cambia `terminal::Terminals` por un cliente de esos endpoints; el widget no cambia.
-   Sirve para que cerrar la ventana no mate un `opencode` a mitad de tarea.
-2. **Secretos en el llavero.** `secret-service` (o archivo 0600 si no hay escritorio) para
-   token de Telegram y clave de embeddings; la API solo devuelve «configurado» y los últimos
-   cuatro caracteres. Nunca a `settings`.
-3. **Catálogos en ajustes.** Modelos ya está hecho (`GET /catalog/models`, selector con
-   precio en el compositor y en ajustes). Faltan agentes y packs: `GET /catalog/agents` y
-   `/catalog/packs`, con selectores en vez de texto libre.
-4. **Distribución.** `.deb`/AppImage, instancia única por socket, y artefactos macOS/aarch64.
-5. **Operador:** prueba real de Telegram (token/chat id) y soak de 72 h
+1. **Chat nativo con OpenCode.** Una sesión interactiva por worktree, con streaming de
+   texto/razonamiento/herramientas y diffs, para no depender del `opencode` dentro del
+   terminal. El cliente ya tiene el lector NDJSON y el daemon ya habla el contrato.
+2. **PTY en el daemon.** Endpoints `/pty`, input, resize, stream y cierre; la app cambia
+   `terminal::Terminals` por un cliente de esos endpoints. Así cerrar la ventana no mata un
+   agente a mitad de tarea.
+3. **Editor de segunda pasada.** Resaltado de sintaxis, búsqueda en contenido, renombrar y
+   borrar archivos, y commit/push desde la UI. La primera pasada (árbol, edición, guardado,
+   archivos nuevos y diff) ya está.
+4. **Secretos y catálogos.** Llavero del sistema como opción preferente sobre el archivo
+   0600; catálogos de agentes y packs, además de los modelos.
+5. **Distribución.** `.deb`/AppImage, instancia única y artefactos macOS/aarch64.
+6. **Operador:** prueba real de Telegram (token/chat id) y soak de 72 h
    (`SOAK_BUDGET_TOKENS=<alto> ./scripts/soak.sh`).
 
 **Modelos para E2E:** usar `opencode-go/hy4-flash-free` (coste $0, credencial ya activa en
@@ -195,6 +197,20 @@ consola. La decisión y las alternativas están en la
   Los secretos **no** van a SQLite: quedan pendientes del llavero.
 - Empaquetado: `scripts/package.sh` incluye los tres binarios, `.desktop`, icono y
   `install.sh`; el instalador registra la app en el menú. Validado en un prefijo limpio.
+- Multi-objetivo: `scheduler::tick` reparte la capacidad (`max_concurrent / objetivos
+  activos`, mínimo 1), rota el orden de objetivos y comparte los claims de rutas entre
+  objetivos del mismo proyecto. Un objetivo con tareas en vuelo no se bloquea por
+  presupuesto; el techo solo impide despachar trabajo nuevo.
+- Progreso por tarea: `TaskProgress` por etapa (en cola 0 %, agente 45 %, verificando 80 %,
+  completada 100 %), barras por tarea en la tarjeta del objetivo, grafo del plan y traza del
+  agente (razonamiento, texto, herramientas, gates). El motivo de espera se calcula en la UI
+  a partir de dependencias, claims y capacidad; el daemon sigue siendo la autoridad.
+- Editor: pestaña «Código» con árbol, edición, guardado, archivos nuevos, diff del worktree
+  contra la base y protección de cambios sin guardar. Es edición local, no orquestación: el
+  daemon no participa en leer/escribir archivos.
+- Telegram: token de escritura única en `secrets.json` (0600), chats permitidos en `settings`,
+  y aviso de reinicio. La API solo devuelve `telegram_configured` y los últimos cuatro
+  caracteres.
 
 ## Trampas ya encontradas (no repetirlas)
 
@@ -214,6 +230,15 @@ consola. La decisión y las alternativas están en la
   La app debe resolver el nombre desde el snapshot antes de pedir.
 - Un panel derecho de 390 px más uno izquierdo de 250 no caben en una ventana de 476 px:
   la app oculta paneles según el ancho y convierte el detalle en pestaña.
+- SQLite no espera a una transacción diferida que empieza leyendo y luego escribe: devuelve
+  `SQLITE_BUSY` sin llamar al busy handler. Con varios agentes eso fallaba como «database is
+  locked». El pool usa **una sola conexión**; SQLite ya tiene un solo escritor.
+- El techo de presupuesto se comprueba por objetivo: si el objetivo tiene tareas en vuelo,
+  se deja terminar y se corta solo el despacho nuevo. Bloquearlo a mitad de run fue un bug.
+- `/status` debe enriquecer las tareas con dependencias, `path_claims` y `merged_at`; sin eso
+  el grafo de la app sale sin aristas y no se puede explicar la espera.
+- El token de Telegram no está en `settings`: `secrets.json` con 0600. No imprimirlo en
+  logs, errores ni respuestas.
 
 ## Entorno
 

@@ -188,6 +188,12 @@ pub struct TaskView {
     /// Task ids this task waits for.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<String>,
+    /// Repository-relative prefixes this task expects to touch.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub path_claims: Vec<String>,
+    /// When the task's commit was integrated into the goal branch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merged_at: Option<Timestamp>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }
@@ -441,6 +447,15 @@ pub struct SettingsView {
     /// Settings changed at runtime whose new value only applies after restarting `jcsd`.
     #[serde(default)]
     pub restart_required: Vec<String>,
+    /// Chats allowed to command the bot. Not secret, but personal; never echoed as a token.
+    #[serde(default)]
+    pub telegram_chat_ids: Vec<i64>,
+    /// Whether a bot token exists. The token itself is never returned.
+    #[serde(default)]
+    pub telegram_configured: bool,
+    /// Last four characters of the token, for recognition only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telegram_token_hint: Option<String>,
 }
 
 /// Partial update. A missing field is unchanged; an empty string clears a model or agent.
@@ -468,6 +483,11 @@ pub struct SettingsPatch {
     pub max_repair_cycles: Option<u64>,
     #[serde(default)]
     pub max_concurrent: Option<u64>,
+    /// Write-only. Missing leaves the current token; an empty string clears it.
+    #[serde(default)]
+    pub telegram_token: Option<String>,
+    #[serde(default)]
+    pub telegram_chat_ids: Option<Vec<i64>>,
 }
 
 /// An event as it appears on the client stream.
@@ -486,6 +506,7 @@ mod tests {
         assert_eq!(patch.review, Some(true));
         assert!(patch.default_model.is_none());
         assert!(patch.run_timeout_secs.is_none());
+        assert!(patch.telegram_token.is_none());
     }
 
     #[test]

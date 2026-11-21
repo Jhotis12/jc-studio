@@ -385,6 +385,8 @@ mod tests {
             branch: None,
             session_id: None,
             depends_on: vec!["task_0".into()],
+            path_claims: Vec::new(),
+            merged_at: None,
             created_at: now,
             updated_at: now,
         }];

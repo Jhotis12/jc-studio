@@ -9,7 +9,7 @@ use jcs_core::Event;
 use jcs_proto::{
     GateRunResponse, GoalActionResponse, HealthResponse, MemoryIndexResponse, MemorySearchResponse,
     MemoryStatsView, ModelCatalogEntry, PolicyView, ProjectView, RenderPolicyResponse,
-    RunDetailResponse, SettingsView, StatusResponse, Totals,
+    RunDetailResponse, SettingsView, StatusResponse, TaskView, Totals,
 };
 
 /// How the window sees the daemon right now.
@@ -34,9 +34,56 @@ pub struct ActivityLine {
     pub seq: i64,
     /// Goal the event belongs to, when it has one. Lets the interface show one objective.
     pub goal_id: Option<String>,
+    /// Task the event belongs to, for the per-task agent trace.
+    pub task_id: Option<String>,
     pub time: String,
     pub kind: String,
     pub detail: String,
+}
+
+/// Stage-based progress of one task. This is the lifecycle, not a guess at model progress:
+/// there is no honest percentage for "how much thinking is left".
+#[derive(Debug, Clone, Copy)]
+pub struct TaskProgress {
+    pub fraction: f32,
+    pub label: &'static str,
+}
+
+pub fn task_progress(task: &TaskView) -> TaskProgress {
+    match task.status.as_str() {
+        "pending" => TaskProgress {
+            fraction: 0.0,
+            label: "en cola",
+        },
+        "running" => TaskProgress {
+            fraction: 0.45,
+            label: "agente trabajando",
+        },
+        "verifying" => TaskProgress {
+            fraction: 0.8,
+            label: "verificando gates",
+        },
+        "succeeded" => TaskProgress {
+            fraction: 1.0,
+            label: "completada",
+        },
+        "failed" => TaskProgress {
+            fraction: 1.0,
+            label: "falló",
+        },
+        "blocked" => TaskProgress {
+            fraction: 0.5,
+            label: "bloqueada",
+        },
+        "cancelled" => TaskProgress {
+            fraction: 1.0,
+            label: "cancelada",
+        },
+        _ => TaskProgress {
+            fraction: 0.0,
+            label: "desconocido",
+        },
+    }
 }
 
 #[derive(Debug, Default)]
@@ -52,6 +99,7 @@ pub struct State {
 
     pub selected_project: Option<String>,
     pub selected_goal: Option<String>,
+    pub selected_task: Option<String>,
     /// Whether the initial goal selection already happened. Closing the detail afterwards
     /// must stay closed instead of being undone by the next snapshot.
     pub auto_selected: bool,
@@ -82,11 +130,8 @@ impl State {
                 self.health = None;
             }
             Update::Status(status) => self.apply_status(status),
-            Update::History(events) => {
-                for event in events {
-                    self.push_event(event);
-                }
-            }
+            Update::History(events) => self.merge_history(events),
+            Update::TaskHistory(events) => self.merge_history(events),
             Update::Event(event) => self.push_event(event),
             Update::Notice { message, error } => self.notice = Some(Notice { message, error }),
             Update::Policy(policy) => self.policy = Some(policy),
@@ -169,11 +214,28 @@ impl State {
         self.events.push_back(ActivityLine {
             seq: event.seq,
             goal_id: event.goal_id.as_ref().map(|id| id.to_string()),
+            task_id: event.task_id.as_ref().map(|id| id.to_string()),
             time: event.ts.strftime("%H:%M:%S").to_string(),
             kind: event.kind.as_str().to_string(),
             detail,
         });
-        while self.events.len() > 1000 {
+        while self.events.len() > 2000 {
+            self.events.pop_front();
+        }
+    }
+
+    /// Merges historical events (global or per task) with the live stream.
+    pub fn merge_history(&mut self, events: Vec<Event>) {
+        for event in events {
+            self.push_event(event);
+        }
+        let mut lines: Vec<_> = self.events.drain(..).collect();
+        lines.sort_by_key(|line| line.seq);
+        lines.dedup_by_key(|line| line.seq);
+        for line in lines {
+            self.events.push_back(line);
+        }
+        while self.events.len() > 2000 {
             self.events.pop_front();
         }
     }
@@ -211,7 +273,13 @@ impl State {
         if let Some(id) = &self.selected_goal {
             if !self.goals.iter().any(|goal| &goal.id == id) {
                 self.selected_goal = None;
+                self.selected_task = None;
                 self.run_detail = None;
+            }
+        }
+        if let Some(id) = &self.selected_task {
+            if !self.tasks.iter().any(|task| &task.id == id) {
+                self.selected_task = None;
             }
         }
     }
@@ -242,6 +310,102 @@ impl State {
     pub fn selected_goal(&self) -> Option<&jcs_proto::GoalView> {
         let id = self.selected_goal.as_deref()?;
         self.goals.iter().find(|goal| goal.id == id)
+    }
+
+    pub fn selected_task(&self) -> Option<&TaskView> {
+        let id = self.selected_task.as_deref()?;
+        self.tasks.iter().find(|task| task.id == id)
+    }
+
+    /// Tokens consumed by all attempts of a task.
+    pub fn task_tokens(&self, task_id: &str) -> i64 {
+        self.runs
+            .iter()
+            .filter(|run| run.task_id == task_id)
+            .map(|run| run.tokens_in + run.tokens_out)
+            .sum()
+    }
+
+    /// Seconds since the task was created, or until it reached a terminal state.
+    pub fn task_elapsed_secs(&self, task: &TaskView) -> i64 {
+        let end = if matches!(task.status.as_str(), "succeeded" | "failed" | "cancelled") {
+            task.updated_at.as_second()
+        } else {
+            jiff::Timestamp::now().as_second()
+        };
+        (end - task.created_at.as_second()).max(0)
+    }
+
+    /// Why a pending task is not running yet, in the operator's terms. This mirrors the
+    /// scheduler's rules (dependencies, path claims, capacity) without duplicating state.
+    pub fn task_wait_reason(&self, task: &TaskView) -> Option<String> {
+        if task.status != "pending" {
+            return None;
+        }
+
+        let mut waiting = Vec::new();
+        for dependency in &task.depends_on {
+            let Some(other) = self.tasks.iter().find(|other| &other.id == dependency) else {
+                waiting.push(crate::daemon::short(dependency).to_string());
+                continue;
+            };
+            if other.status != "succeeded" {
+                waiting.push(format!(
+                    "{} ({})",
+                    crate::daemon::short(&other.id),
+                    other.status
+                ));
+            } else if other.merged_at.is_none() {
+                waiting.push(format!(
+                    "integración de {}",
+                    crate::daemon::short(&other.id)
+                ));
+            }
+        }
+        if !waiting.is_empty() {
+            return Some(format!("espera {}", waiting.join(", ")));
+        }
+
+        let project_id = self
+            .goals
+            .iter()
+            .find(|goal| goal.id == task.goal_id)
+            .map(|goal| goal.project_id.clone());
+        let same_project = |other: &TaskView| {
+            self.goals
+                .iter()
+                .find(|goal| goal.id == other.goal_id)
+                .is_some_and(|goal| Some(&goal.project_id) == project_id.as_ref())
+        };
+
+        for other in self.tasks.iter().filter(|other| {
+            matches!(other.status.as_str(), "running" | "verifying") && same_project(other)
+        }) {
+            if jcs_core::claims::claims_overlap(&task.path_claims, &other.path_claims) {
+                return Some(format!(
+                    "espera: {} trabaja en las mismas rutas",
+                    crate::daemon::short(&other.id)
+                ));
+            }
+        }
+
+        let running = self
+            .tasks
+            .iter()
+            .filter(|other| {
+                matches!(other.status.as_str(), "running" | "verifying") && same_project(other)
+            })
+            .count();
+        if let Some(settings) = &self.settings {
+            if running >= settings.max_concurrent as usize {
+                return Some(format!(
+                    "espera turno ({running}/{} en curso)",
+                    settings.max_concurrent
+                ));
+            }
+        }
+
+        None
     }
 
     pub fn goal_tasks(&self, goal_id: &str) -> Vec<&jcs_proto::TaskView> {
@@ -292,15 +456,35 @@ impl State {
 
 /// One-line description of an event, bounded so the console cannot grow fat.
 fn summarize(event: &Event) -> String {
-    const LIMIT: usize = 220;
+    // Agent text is the trace itself; everything else is a summary. The console truncates
+    // for display, so keeping the full chunk here does not flood the window.
+    let limit = match event.kind.as_str() {
+        "agent_text" | "agent_reasoning" => 4_000,
+        _ => 220,
+    };
 
     let payload = &event.payload;
     let text = match event.kind.as_str() {
-        "agent_text" => payload
+        "agent_text" | "agent_reasoning" => payload
             .get("text")
             .and_then(|value| value.as_str())
             .unwrap_or_default()
             .to_string(),
+        "agent_tool_called" | "agent_tool_finished" => {
+            let tool = payload
+                .get("tool")
+                .and_then(|value| value.as_str())
+                .unwrap_or("herramienta");
+            let detail = payload
+                .get("output")
+                .or_else(|| payload.get("input"))
+                .map(|value| match value {
+                    serde_json::Value::String(text) => text.clone(),
+                    other => other.to_string(),
+                })
+                .unwrap_or_default();
+            format!("{tool} · {}", detail.trim())
+        }
         "error" => {
             let reason = payload
                 .get("reason")
@@ -331,8 +515,8 @@ fn summarize(event: &Event) -> String {
         }
     };
 
-    if text.chars().count() > LIMIT {
-        let mut short: String = text.chars().take(LIMIT).collect();
+    if text.chars().count() > limit {
+        let mut short: String = text.chars().take(limit).collect();
         short.push('…');
         short
     } else {
@@ -363,10 +547,10 @@ mod tests {
     #[test]
     fn the_event_console_is_bounded() {
         let mut state = State::default();
-        for seq in 1..=1200 {
+        for seq in 1..=2200 {
             state.push_event(event(seq, EventKind::AgentText, serde_json::json!({})));
         }
-        assert_eq!(state.events.len(), 1000);
+        assert_eq!(state.events.len(), 2000);
         assert_eq!(state.events.front().unwrap().seq, 201);
     }
 

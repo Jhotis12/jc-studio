@@ -5,6 +5,7 @@ use sqlx::FromRow;
 use crate::error::{Result, StoreError};
 use crate::store::Store;
 use jcs_core::{EventKind, GoalId, NewEvent, ProjectId, StatusMachine, Task, TaskId, TaskStatus};
+use jiff::Timestamp;
 
 #[derive(Debug, FromRow)]
 pub(crate) struct TaskRow {
@@ -48,6 +49,19 @@ macro_rules! task_columns {
 }
 
 impl Store {
+    /// When a task was integrated, without loading the whole task row.
+    pub async fn task_merged_at(&self, id: &TaskId) -> Result<Option<Timestamp>> {
+        let row: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT merged_at FROM tasks WHERE id = ?")
+                .bind(id.as_str())
+                .fetch_optional(self.pool())
+                .await?;
+        match row {
+            Some((Some(value),)) => Ok(Some(crate::store::decode_ts(&value)?)),
+            _ => Ok(None),
+        }
+    }
+
     pub async fn create_task(&self, goal_id: &GoalId, title: &str) -> Result<Task> {
         let title = title.trim();
         if title.is_empty() {

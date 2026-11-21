@@ -438,11 +438,13 @@ async fn pump_events(
     tokio::pin!(deadline);
 
     let mut buffer = String::new();
+    let mut reasoning = String::new();
 
     loop {
         tokio::select! {
             _ = &mut deadline => {
                 flush_text(state, &dispatch.task_id, run_id, session_id, &mut buffer).await?;
+                flush_reasoning(state, &dispatch.task_id, run_id, session_id, &mut reasoning).await?;
                 return Ok(PumpResult::TimedOut);
             }
 
@@ -461,6 +463,9 @@ async fn pump_events(
 
                 if let Some(delta) = event.text_delta() {
                     buffer.push_str(delta);
+                }
+                if let Some(delta) = event.reasoning_delta() {
+                    reasoning.push_str(delta);
                 }
 
                 if let Some(reported) = event.usage() {
@@ -482,17 +487,20 @@ async fn pump_events(
 
                 if let Some(outcome) = event.execution_outcome() {
                     flush_text(state, &dispatch.task_id, run_id, session_id, &mut buffer).await?;
+                    flush_reasoning(state, &dispatch.task_id, run_id, session_id, &mut reasoning).await?;
                     return Ok(PumpResult::Finished(outcome));
                 }
             }
 
             _ = text_flush.tick() => {
                 flush_text(state, &dispatch.task_id, run_id, session_id, &mut buffer).await?;
+                flush_reasoning(state, &dispatch.task_id, run_id, session_id, &mut reasoning).await?;
             }
 
             _ = reconcile_tick.tick() => {
                 if let Some(result) = reconcile(state, dispatch, run_id, session_id).await? {
                     flush_text(state, &dispatch.task_id, run_id, session_id, &mut buffer).await?;
+                    flush_reasoning(state, &dispatch.task_id, run_id, session_id, &mut reasoning).await?;
                     return Ok(result);
                 }
             }
@@ -602,6 +610,43 @@ async fn flush_text(
     session_id: &str,
     buffer: &mut String,
 ) -> Result<()> {
+    flush_chunk(
+        state,
+        task_id,
+        run_id,
+        session_id,
+        buffer,
+        EventKind::AgentText,
+    )
+    .await
+}
+
+async fn flush_reasoning(
+    state: &AppState,
+    task_id: &TaskId,
+    run_id: &RunId,
+    session_id: &str,
+    buffer: &mut String,
+) -> Result<()> {
+    flush_chunk(
+        state,
+        task_id,
+        run_id,
+        session_id,
+        buffer,
+        EventKind::AgentReasoning,
+    )
+    .await
+}
+
+async fn flush_chunk(
+    state: &AppState,
+    task_id: &TaskId,
+    run_id: &RunId,
+    session_id: &str,
+    buffer: &mut String,
+    kind: EventKind,
+) -> Result<()> {
     if buffer.trim().is_empty() {
         buffer.clear();
         return Ok(());
@@ -619,7 +664,7 @@ async fn flush_text(
         String::new()
     };
 
-    let event = NewEvent::new(EventKind::AgentText)
+    let event = NewEvent::new(kind)
         .task(task_id)
         .run(run_id)
         .payload(json!({ "session_id": session_id, "text": chunk }));

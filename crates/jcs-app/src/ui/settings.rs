@@ -284,6 +284,76 @@ fn daemon_settings(ui: &mut egui::Ui, app: &mut Studio) {
             ui.end_row();
         });
 
+    ui.add_space(10.0);
+    ui.separator();
+    ui.label(RichText::new("Telegram").strong());
+    let telegram = app.state.settings.as_ref().map(|settings| {
+        (
+            settings.telegram_configured,
+            settings.telegram_token_hint.clone(),
+            settings.telegram_chat_ids.len(),
+        )
+    });
+    match &telegram {
+        Some((true, hint, _)) => {
+            let hint = hint.clone().unwrap_or_default();
+            ui.label(
+                RichText::new(format!("token configurado · …{hint}"))
+                    .small()
+                    .color(Color32::from_rgb(120, 200, 130)),
+            );
+        }
+        Some((false, _, _)) => {
+            ui.label(
+                RichText::new("sin token: el bot está apagado")
+                    .small()
+                    .weak(),
+            );
+        }
+        None => {
+            ui.label(RichText::new("cargando…").small().weak());
+        }
+    }
+    if telegram.is_some_and(|(_, _, chats)| chats == 0) {
+        ui.label(
+            RichText::new("sin chats permitidos: el bot no responderá a nadie")
+                .small()
+                .color(Color32::from_rgb(230, 170, 90)),
+        );
+    }
+
+    ui.horizontal(|ui| {
+        ui.label("Token");
+        ui.add_enabled(
+            !app.global_form.clear_telegram_token,
+            egui::TextEdit::singleline(&mut app.global_form.telegram_token)
+                .password(true)
+                .hint_text("el que da @BotFather")
+                .desired_width(280.0),
+        );
+    });
+    ui.checkbox(
+        &mut app.global_form.clear_telegram_token,
+        "borrar el token guardado",
+    );
+    ui.horizontal(|ui| {
+        ui.label("Chats permitidos");
+        ui.add(
+            egui::TextEdit::singleline(&mut app.global_form.telegram_chat_ids)
+                .hint_text("123456789, -1001234567890")
+                .desired_width(280.0),
+        );
+    });
+    ui.label(
+        RichText::new(
+            "El token se guarda en secrets.json con permisos 0600, nunca en la base de \
+             datos ni en la API. Los chats son los ids que pueden dar órdenes al bot. \
+             Se aplica al reiniciar jcsd.",
+        )
+        .weak()
+        .small(),
+    );
+
     if let Some(settings) = &app.state.settings {
         if !settings.restart_required.is_empty() {
             egui::Frame::group(ui.style())
@@ -322,6 +392,49 @@ fn daemon_settings(ui: &mut egui::Ui, app: &mut Studio) {
             app.daemon.send(crate::daemon::Command::LoadSettings);
         }
     });
+
+    ui.add_space(10.0);
+    ui.separator();
+    ui.label(RichText::new("Aplicar cambios que requieren reinicio").strong());
+    ui.label(
+        RichText::new(
+            "La concurrencia, el token de Telegram y los chats se leen al arrancar. Reiniciar \
+             jcsd interrumpe las ejecuciones en curso: se marcan como interrumpidas y sus \
+             tareas como bloqueadas, nunca se pierde el trabajo ya confirmado.",
+        )
+        .weak()
+        .small(),
+    );
+    ui.horizontal(|ui| {
+        ui.checkbox(
+            &mut app.confirm_restart,
+            "entiendo que se interrumpen las tareas en curso",
+        );
+        if ui
+            .add_enabled(
+                app.confirm_restart && app.state.is_connected(),
+                egui::Button::new("Reiniciar jcsd"),
+            )
+            .clicked()
+        {
+            match restart_daemon() {
+                Ok(message) => {
+                    app.confirm_restart = false;
+                    app.state.notice = Some(crate::state::Notice {
+                        message,
+                        error: false,
+                    });
+                    app.daemon.send(crate::daemon::Command::Refresh);
+                }
+                Err(message) => {
+                    app.state.notice = Some(crate::state::Notice {
+                        message,
+                        error: true,
+                    });
+                }
+            }
+        }
+    });
     ui.label(
         RichText::new(
             "El token de Telegram y las claves de embeddings no se editan aquí: son secretos y              pertenecen al llavero del sistema, no a la base de datos.",
@@ -329,6 +442,25 @@ fn daemon_settings(ui: &mut egui::Ui, app: &mut Studio) {
         .weak()
         .small(),
     );
+}
+
+/// Restarts the user service. The application reconnects on its own; work in flight is
+/// recovered as interrupted/blocked by the daemon's startup path.
+fn restart_daemon() -> Result<String, String> {
+    match std::process::Command::new("systemctl")
+        .args(["--user", "restart", "jcsd"])
+        .status()
+    {
+        Ok(status) if status.success() => {
+            Ok("jcsd reiniciado; la app se reconectará en unos segundos".to_string())
+        }
+        Ok(status) => Err(format!(
+            "systemctl no pudo reiniciar jcsd (código {status})"
+        )),
+        Err(error) => Err(format!(
+            "no se pudo ejecutar systemctl: {error}. Reinicia el servicio a mano."
+        )),
+    }
 }
 
 fn add_project_window(context: &egui::Context, app: &mut Studio) {

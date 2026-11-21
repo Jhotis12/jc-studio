@@ -215,6 +215,9 @@ fn planning_prompt(goal: &Goal, project: &Project) -> String {
          - `depends_on` references keys in this plan and must not form a cycle.\n\
          - `paths` are repository-relative prefixes the task expects to touch. Tasks that \
            can run in parallel must not claim overlapping paths.\n\
+         - Prefer parallel work. Independent tasks use an empty `depends_on` and \
+           non-overlapping paths; do not chain tasks just because they are listed in order. \
+           Only a final synthesis or integration task should depend on all the others.\n\
          - `role` is one of: implement, test, review, docs, migrate.\n\
          - `description` must stand alone: it becomes the implementer's prompt.\n",
         prompt = goal.prompt,

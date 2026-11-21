@@ -20,9 +20,9 @@ Si llegas aquí después de una compactación de contexto, el punto de entrada e
 | 5 — Revisión de código y seguridad | 6 | **completa** | 100 % |
 | 6 — Telegram | 4 | operativa | 85 % |
 | 7 — Hardening y distribución | 10 | casi completa (Linux empaquetado) | 80 % |
-| 8 — App de escritorio (egui) | 15 | funcional; faltan PTY en daemon y catálogos | 75 % |
+| 8 — App de escritorio (egui) | 17 | funcional; faltan chat nativo y PTY en daemon | 85 % |
 
-- **Producto completo (backend + app): ~85 %.**
+- **Producto completo (backend + app): ~90 %.**
 - **MVP (fases 0–4): ~99 %.**
 
 El porcentaje mide alcance, no riesgo. La tesis arquitectónica (daemon durable, agente real,
@@ -91,6 +91,23 @@ El razonamiento y las alternativas están en la [ADR 0010](adr/0010-desktop-app-
 - [x] 8.5 Empaquetado de escritorio Linux: `jc-studio` en el tarball, `.desktop`, icono,
       instalador que registra la app en el menú. Verificado en un prefijo limpio.
       **Pendiente:** `.deb`/AppImage, instancia única y actualizaciones.
+- [x] 8.6 Multi-objetivo real: el scheduler despacha tareas independientes en paralelo, reparte
+      la capacidad entre objetivos activos (`max_concurrent / objetivos`, mínimo 1), rota el
+      orden para que ninguno acapare y comparte los claims de rutas entre objetivos del mismo
+      proyecto. Un objetivo con trabajo en vuelo nunca se bloquea por presupuesto: el techo
+      solo impide despachar trabajo nuevo. Prueba: `just e2e-multigoal`.
+- [x] 8.7 Progreso por tarea y proceso visible: porcentaje por etapa, barras por tarea en la
+      tarjeta del objetivo, grafo del plan con dependencias y aristas, traza en vivo del
+      agente (razonamiento, texto, herramientas, gates) y motivo de espera («espera turno»,
+      «mismas rutas», «integración de …»). Los eventos de razonamiento se capturan como
+      `agent_reasoning`.
+- [x] 8.8 Espacio de código (primera entrega): explorador de archivos, editor con guardado,
+      creación de archivos, protección de cambios sin guardar y diff del worktree contra la
+      rama base. **Pendiente:** resaltado de sintaxis, búsqueda en contenido, renombrar/borrar,
+      commit/push desde la UI y chat nativo con OpenCode.
+- [x] 8.9 Telegram configurable desde Ajustes: token de escritura única, chats permitidos,
+      estado «configurado · …abcd» y aviso de reinicio. El token va a `secrets.json` (0600),
+      nunca a SQLite, logs ni API.
 
 Nota: `egui 0.37` rediseñó `eframe::App`; la app está anclada a **0.31** hasta que la nueva
 API esté documentada y probada.
@@ -113,7 +130,7 @@ API esté documentada y probada.
 
 | Comando | Qué demuestra |
 |---|---|
-| `cargo nextest run --workspace` | **305 tests** unitarios, de propiedad y de integración |
+| `cargo nextest run --workspace` | **322 tests** unitarios, de propiedad y de integración |
 | `just e2e` | objetivo → worktree → agente → gates → commit |
 | `just e2e-policy` | gate que exige un token: prueba el bucle de reparación |
 | `just e2e-plan` | objetivo → plan → DAG → tareas → entregables |
@@ -121,6 +138,7 @@ API esté documentada y probada.
 | `just e2e-memory` | índice → búsqueda citada → incremental → contexto en el prompt |
 | `just chaos` | `kill -9` a mitad de run → `interrupted` + `blocked`, sin commits parciales |
 | `just soak` | techo de presupuesto → bloqueo auditado → reanudación → sin fugas |
+| `just e2e-multigoal` | dos objetivos progresan a la vez, sin locks y ambos terminan |
 | `cargo test -p jcs-app` | formularios, estado de la app y un PTY real que ejecuta un comando |
 | `./scripts/package.sh` | tarball con daemon, CLI y app; `.desktop` validado e instalación limpia |
 | `just audit` | licencias y avisos de dependencias |
@@ -132,8 +150,11 @@ empaquetado en `sqlx` 0.9), aceptado con precondiciones y dos condiciones de sal
 
 ## Siguiente
 
-1. Mover el PTY al daemon (`/pty`, stream y resize) para que las terminales sobrevivan al
+1. Chat nativo con OpenCode dentro de la app (sesión por worktree, streaming y diffs),
+   además del terminal actual.
+2. Mover el PTY al daemon (`/pty`, stream y resize) para que las terminales sobrevivan al
    cierre de la ventana y a un reinicio de la app.
-2. Secretos en el llavero del sistema y catálogos de modelos/agentes/packs en los ajustes.
-3. `.deb`/AppImage e instancia única; artefactos macOS y Linux aarch64.
-4. Prueba real de Telegram (token del operador) y soak largo de 72 h.
+3. Editor: resaltado de sintaxis, búsqueda en contenido, renombrar/borrar y commit/push.
+4. Secretos en el llavero del sistema (hoy archivo 0600) y catálogos de agentes/packs.
+5. `.deb`/AppImage e instancia única; artefactos macOS y Linux aarch64.
+6. Prueba real de Telegram (token del operador) y soak largo de 72 h.

@@ -28,6 +28,8 @@ pub struct Values {
     pub max_repair_cycles: u64,
     /// Applied when the process starts; a change at runtime requires a restart.
     pub max_concurrent: u64,
+    /// Chats allowed to command the Telegram bot.
+    pub telegram_chat_ids: Vec<i64>,
 }
 
 impl Default for Values {
@@ -43,7 +45,8 @@ impl Default for Values {
             run_timeout_secs: 900,
             context_tokens: 1500,
             max_repair_cycles: 2,
-            max_concurrent: 2,
+            max_concurrent: 4,
+            telegram_chat_ids: Vec::new(),
         }
     }
 }
@@ -62,6 +65,7 @@ impl Values {
             context_tokens: config.context_tokens as u64,
             max_repair_cycles: config.max_repair_cycles as u64,
             max_concurrent: config.max_concurrent as u64,
+            telegram_chat_ids: config.telegram_chat_ids.clone(),
         }
     }
 
@@ -79,6 +83,9 @@ impl Values {
             max_repair_cycles: self.max_repair_cycles,
             max_concurrent: self.max_concurrent,
             restart_required,
+            telegram_chat_ids: self.telegram_chat_ids.clone(),
+            telegram_configured: false,
+            telegram_token_hint: None,
         }
     }
 }
@@ -92,8 +99,22 @@ pub struct RuntimeSettings {
 impl RuntimeSettings {
     /// Loads saved values, falling back to the environment-derived configuration.
     pub fn load(config: &Config, stored: Option<&str>) -> Self {
+        // Merge instead of replacing: a row written by an older version does not contain
+        // fields added later (Telegram chats, for example), and those must keep the value
+        // the environment or the defaults gave them.
         let values = stored
-            .and_then(|json| serde_json::from_str::<Values>(json).ok())
+            .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+            .and_then(|stored| {
+                let mut base = serde_json::to_value(Values::from_config(config)).ok()?;
+                if let (serde_json::Value::Object(base), serde_json::Value::Object(stored)) =
+                    (&mut base, stored)
+                {
+                    for (key, value) in stored {
+                        base.insert(key, value);
+                    }
+                }
+                serde_json::from_value::<Values>(base).ok()
+            })
             .unwrap_or_else(|| Values::from_config(config));
         Self {
             values: RwLock::new(values),
@@ -200,11 +221,32 @@ impl RuntimeSettings {
             &mut changed,
         )?;
 
-        if changed.iter().any(|key| key == "max_concurrent") {
-            self.pending_restart
-                .lock()
-                .expect("settings lock poisoned")
-                .insert("max_concurrent".to_string());
+        if let Some(chats) = &patch.telegram_chat_ids {
+            if chats.len() > 20 {
+                return Err("at most 20 Telegram chats are allowed".to_string());
+            }
+            if chats.contains(&0) {
+                return Err("Telegram chat ids cannot be zero".to_string());
+            }
+            if values.telegram_chat_ids != *chats {
+                values.telegram_chat_ids = chats.clone();
+                changed.push("telegram_chat_ids".to_string());
+            }
+        }
+
+        for key in &changed {
+            if key == "max_concurrent" {
+                self.pending_restart
+                    .lock()
+                    .expect("settings lock poisoned")
+                    .insert(key.clone());
+            } else if key == "telegram_chat_ids" {
+                // The token and the chats are read together when the bot starts.
+                self.pending_restart
+                    .lock()
+                    .expect("settings lock poisoned")
+                    .insert("telegram".to_string());
+            }
         }
 
         Ok((values.clone(), changed))
@@ -252,6 +294,19 @@ impl RuntimeSettings {
 
     pub fn max_concurrent(&self) -> u64 {
         self.snapshot().max_concurrent
+    }
+
+    pub fn telegram_chat_ids(&self) -> Vec<i64> {
+        self.snapshot().telegram_chat_ids
+    }
+
+    /// Marks a setting whose new value needs a process restart (the token is applied when
+    /// the bot starts).
+    pub fn require_restart(&self, key: &str) {
+        self.pending_restart
+            .lock()
+            .expect("settings lock poisoned")
+            .insert(key.to_string());
     }
 }
 
@@ -345,6 +400,22 @@ mod tests {
         let settings = RuntimeSettings::load(&config(), Some(&json));
         assert_eq!(settings.default_model().as_deref(), Some("cheap/model"));
         assert!(settings.review());
+    }
+
+    #[test]
+    fn stored_values_keep_new_fields_from_the_environment() {
+        let mut config = config();
+        config.telegram_chat_ids = vec![7, -1008];
+        let settings = RuntimeSettings::load(&config, Some(r#"{"review":true}"#));
+        assert!(settings.review());
+        assert_eq!(settings.telegram_chat_ids(), vec![7, -1008]);
+    }
+
+    #[test]
+    fn telegram_chat_ids_are_validated() {
+        let settings = RuntimeSettings::from_config(&config());
+        let patch: SettingsPatch = serde_json::from_str(r#"{"telegram_chat_ids":[1,0]}"#).unwrap();
+        assert!(settings.update(&patch).is_err());
     }
 
     #[test]

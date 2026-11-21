@@ -12,6 +12,7 @@ mod merge;
 mod planner;
 mod reviewer;
 mod scheduler;
+mod secrets;
 mod settings;
 mod state;
 mod telegram;
@@ -29,6 +30,7 @@ use serde_json::json;
 use tracing_subscriber::EnvFilter;
 
 use crate::config::Config;
+use crate::secrets::Secrets;
 use crate::settings::RuntimeSettings;
 use crate::state::AppState;
 
@@ -117,12 +119,22 @@ async fn main() -> Result<()> {
         None
     });
     let runtime = Arc::new(RuntimeSettings::load(&config, stored.as_deref()));
+    let data_directory = config
+        .db_path
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let secrets = Arc::new(Secrets::load(
+        &data_directory,
+        config.telegram_token.clone(),
+    ));
     let state = AppState::new(
         store,
         Arc::new(config.clone()),
         Arc::new(packs),
         embeddings,
         runtime,
+        secrets,
     );
 
     // Crash recovery: a `started` run means the previous process died mid-flight.

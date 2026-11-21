@@ -1,32 +1,46 @@
-//! Right-hand detail: the selected objective, its tasks, runs and gates.
+//! Right-hand detail: the selected objective, its plan graph, tasks, runs and gates.
 
 use egui::{Color32, RichText};
 
 use crate::app::{ConsoleTab, Studio};
 use crate::daemon::Command;
-use crate::ui::{badge, metric, status_color};
+use crate::state::task_progress;
+use crate::ui::{badge, dag, metric, status_color};
 
 pub fn goal(ui: &mut egui::Ui, app: &mut Studio) {
     let Some(goal) = app.state.selected_goal().cloned() else {
         ui.add_space(16.0);
         ui.label(
             RichText::new(
-                "Selecciona un objetivo para ver sus tareas, ejecuciones y gates. Cada tarea \
-                 corre en su propio worktree y solo se integra si la verificación pasa.",
+                "Selecciona un objetivo para ver su grafo de tareas, el progreso de cada una y \
+                 lo que está haciendo el agente. Cada tarea corre en su propio worktree.",
             )
             .weak(),
         );
         return;
     };
 
-    let tasks = app
+    let tasks: Vec<jcs_proto::TaskView> = app
         .state
         .goal_tasks(&goal.id)
         .into_iter()
         .cloned()
-        .collect::<Vec<_>>();
+        .collect();
+    let total = tasks.len();
+    let succeeded = tasks
+        .iter()
+        .filter(|task| task.status == "succeeded")
+        .count();
+    let running = tasks.iter().filter(|task| task.status == "running").count();
+    let verifying = tasks
+        .iter()
+        .filter(|task| task.status == "verifying")
+        .count();
+    let pending = tasks.iter().filter(|task| task.status == "pending").count();
+    let blocked = tasks.iter().filter(|task| task.status == "blocked").count();
+    let failed = tasks.iter().filter(|task| task.status == "failed").count();
     let (cost, tokens_in, tokens_out) = app.state.goal_cost(&goal.id);
-    let running = app.state.running_run(&goal.id).cloned();
+    let running_run = app.state.running_run(&goal.id).cloned();
 
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
@@ -46,6 +60,7 @@ pub fn goal(ui: &mut egui::Ui, app: &mut Studio) {
                         .clicked()
                     {
                         app.state.selected_goal = None;
+                        app.state.selected_task = None;
                     }
                 });
             });
@@ -64,8 +79,32 @@ pub fn goal(ui: &mut egui::Ui, app: &mut Studio) {
                 metric(ui, "tokens salida", tokens_out.to_string());
             });
 
+            if total > 0 {
+                ui.add_space(8.0);
+                let fraction = succeeded as f32 / total as f32;
+                ui.add(
+                    egui::ProgressBar::new(fraction)
+                        .desired_height(8.0)
+                        .fill(status_color(if failed > 0 {
+                            "failed"
+                        } else {
+                            "succeeded"
+                        }))
+                        .text(format!("{succeeded}/{total} tareas completadas")),
+                );
+                ui.add_space(2.0);
+                ui.label(
+                    RichText::new(format!(
+                        "{running} en curso · {verifying} verificando · {pending} en cola · \
+                         {blocked} bloqueadas · {failed} fallidas"
+                    ))
+                    .weak()
+                    .small(),
+                );
+            }
+
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if goal.status == "blocked"
                     && ui
                         .button("Reanudar objetivo")
@@ -78,7 +117,7 @@ pub fn goal(ui: &mut egui::Ui, app: &mut Studio) {
                         goal: goal.id.clone(),
                     });
                 }
-                if let Some(run) = &running {
+                if let Some(run) = &running_run {
                     if ui.button("Abortar ejecución").clicked() {
                         app.daemon.send(Command::Abort {
                             run: run.id.clone(),
@@ -101,11 +140,29 @@ pub fn goal(ui: &mut egui::Ui, app: &mut Studio) {
                 }
             });
 
-            ui.add_space(12.0);
+            ui.add_space(10.0);
+            egui::CollapsingHeader::new("Grafo del plan")
+                .default_open(true)
+                .show(ui, |ui| {
+                    dag::graph(ui, app, &tasks);
+                });
+
+            ui.add_space(8.0);
             ui.separator();
+            let selected_task_ids = app
+                .state
+                .selected_task()
+                .map(|task| (task.goal_id.clone(), task.id.clone()));
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Tareas").strong());
-                ui.label(RichText::new(format!("{}", tasks.len())).weak());
+                ui.label(RichText::new(format!("{total}")).weak());
+                if let Some((goal_id, id)) = selected_task_ids {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("Ver actividad del agente").clicked() {
+                            app.focus_task(goal_id, id);
+                        }
+                    });
+                }
             });
             ui.add_space(4.0);
 
@@ -128,18 +185,57 @@ pub fn goal(ui: &mut egui::Ui, app: &mut Studio) {
 }
 
 fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
-    let runs = app
-        .state
-        .task_runs(&task.id)
-        .into_iter()
-        .cloned()
-        .collect::<Vec<_>>();
+    let runs: Vec<jcs_proto::RunView> =
+        app.state.task_runs(&task.id).into_iter().cloned().collect();
+    let selected = app.state.selected_task.as_deref() == Some(task.id.as_str());
+    let progress = task_progress(task);
+    let color = status_color(&task.status);
+    let elapsed = app.state.task_elapsed_secs(task);
+    let tokens = app.state.task_tokens(&task.id);
 
-    egui::Frame::group(ui.style()).show(ui, |ui| {
+    let frame = egui::Frame::group(ui.style()).fill(if selected {
+        ui.visuals().selection.bg_fill.gamma_multiply(0.18)
+    } else {
+        ui.visuals().faint_bg_color
+    });
+
+    frame.show(ui, |ui| {
         ui.horizontal(|ui| {
             badge(ui, &task.status);
-            ui.label(RichText::new(&task.title).strong());
+            if ui
+                .selectable_label(selected, RichText::new(&task.title).strong())
+                .on_hover_text("Ver la actividad del agente para esta tarea")
+                .clicked()
+            {
+                app.focus_task(task.goal_id.clone(), task.id.clone());
+            }
         });
+
+        ui.add_space(3.0);
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::ProgressBar::new(progress.fraction)
+                    .desired_width(130.0)
+                    .desired_height(6.0)
+                    .fill(color)
+                    .text(""),
+            );
+            ui.label(
+                RichText::new(format!(
+                    "{}% · {}",
+                    (progress.fraction * 100.0).round() as i32,
+                    progress.label
+                ))
+                .small()
+                .color(color),
+            );
+            ui.label(
+                RichText::new(format!("{} · {} tok", duration(elapsed), tokens))
+                    .weak()
+                    .small(),
+            );
+        });
+
         ui.horizontal_wrapped(|ui| {
             ui.label(
                 RichText::new(crate::daemon::short(&task.id))
@@ -159,22 +255,38 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
                 .map(|id| crate::daemon::short(id).to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-            ui.label(RichText::new(format!("espera a {names}")).weak().small());
+            ui.label(RichText::new(format!("depende de {names}")).weak().small());
+        }
+        if let Some(reason) = app.state.task_wait_reason(task) {
+            ui.label(
+                RichText::new(format!("en espera · {reason}"))
+                    .small()
+                    .color(Color32::from_rgb(230, 170, 90)),
+            );
         }
 
-        if let Some(worktree) = &task.worktree {
+        ui.horizontal_wrapped(|ui| {
             if ui
-                .small_button("Abrir terminal en el worktree")
-                .on_hover_text(worktree)
+                .small_button("Actividad del agente")
+                .on_hover_text("Razonamiento, respuesta y herramientas en vivo.")
                 .clicked()
             {
-                let _ = app
-                    .terminals
-                    .open(std::path::PathBuf::from(worktree), task.title.clone());
-                app.console_tab = ConsoleTab::Terminals;
-                app.show_console = true;
+                app.focus_task(task.goal_id.clone(), task.id.clone());
             }
-        }
+            if let Some(worktree) = &task.worktree {
+                if ui
+                    .small_button("Terminal en el worktree")
+                    .on_hover_text(worktree)
+                    .clicked()
+                {
+                    let _ = app
+                        .terminals
+                        .open(std::path::PathBuf::from(worktree), task.title.clone());
+                    app.console_tab = ConsoleTab::Terminals;
+                    app.show_console = true;
+                }
+            }
+        });
 
         for run in &runs {
             ui.add_space(2.0);
@@ -234,4 +346,14 @@ fn task_card(ui: &mut egui::Ui, app: &mut Studio, task: &jcs_proto::TaskView) {
             }
         }
     });
+}
+
+fn duration(seconds: i64) -> String {
+    if seconds < 60 {
+        format!("{seconds}s")
+    } else if seconds < 3600 {
+        format!("{}m {}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{}h {}m", seconds / 3600, (seconds % 3600) / 60)
+    }
 }
