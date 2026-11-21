@@ -70,6 +70,8 @@ enum Command {
         #[arg(long, default_value_t = 10)]
         limit: usize,
     },
+    /// Print daemon metrics in Prometheus text format.
+    Metrics,
     /// Show index statistics.
     Memory {
         /// Project name or path; defaults to the current directory.
@@ -288,6 +290,10 @@ async fn run(cli: Cli, client: Client) -> Result<()> {
             query,
             limit,
         } => search(&client, project, query, limit, json).await,
+        Command::Metrics => {
+            print!("{}", client.metrics().await?);
+            Ok(())
+        }
         Command::Memory { project } => memory(&client, project, json).await,
         Command::Goal { goal } => show_goal(&client, &goal, json).await,
         Command::Resume { goal } => {

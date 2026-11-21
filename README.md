@@ -110,6 +110,9 @@ jcs gates run <proyecto> --gate clippy
 # TUI
 jcs tui
 
+# métricas (texto Prometheus)
+jcs metrics
+
 # memoria de código
 jcs index                     # indexa el proyecto actual (incremental por hash)
 jcs index --force             # re-parsea todo

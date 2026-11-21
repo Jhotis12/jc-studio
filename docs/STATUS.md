@@ -19,9 +19,9 @@ Si llegas aquí después de una compactación de contexto, el punto de entrada e
 | 4 — Memoria: grafo + RAG | 10 | **casi completa** | 90 % |
 | 5 — Revisión de código y seguridad | 6 | **completa** | 100 % |
 | 6 — Telegram | 4 | operativa | 85 % |
-| 7 — Hardening y distribución | 10 | parcial | 25 % |
+| 7 — Hardening y distribución | 10 | parcial (métricas, unidad systemd) | 35 % |
 
-- **v1 completo (fases 0–7): ~78 %.**
+- **v1 completo (fases 0–7): ~82 %.**
 - **MVP (fases 0–4): ~99 %.**
 
 El porcentaje mide alcance, no riesgo. La tesis arquitectónica (daemon durable, agente real,
@@ -67,6 +67,14 @@ worktree aislado, gates, DAG, integración) está validada con tests y scripts.
 - [ ] Rate limiting y resumen diario.
 - Nota: probado con tests de parseo y allowlist, **no contra la API real** de Telegram (no
   hay token en este entorno).
+
+## Fase 7: qué falta exactamente
+
+- [x] Métricas Prometheus (`/metrics`, `jcs metrics`), unidad systemd, `jcs doctor`.
+- [x] Auditoría de acciones: event log append-only con scopes.
+- [ ] Soak de 72 h con techo de presupuesto y verificación de fugas.
+- [ ] Empaquetado `cargo dist`, script de instalación, runbook.
+- [ ] Endpoint de métricas por proyecto (hoy agregado) y panel en la TUI.
 
 ## Evidencia reproducible
 

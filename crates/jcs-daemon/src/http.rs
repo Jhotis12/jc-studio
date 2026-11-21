@@ -53,6 +53,7 @@ pub fn router(state: AppState) -> Router {
         .route("/policy/render", post(render_policy))
         .route("/gates", get(gates))
         .route("/gates/run", post(run_gates))
+        .route("/metrics", get(metrics))
         .route("/memory/index", post(memory_index))
         .route("/memory/search", get(memory_search))
         .route("/memory/stats", get(memory_stats))
@@ -800,6 +801,62 @@ async fn resume_goal(
         goal_id: goal_id.to_string(),
         status: GoalStatus::Running.as_str().to_string(),
     }))
+}
+
+/// Prometheus-style text metrics.
+///
+/// Deliberately plain: a counter that a scraper can read and a human can `curl` without a
+/// client library. Counts are computed from the bounded lists, which is accurate for the
+/// dashboards this serves and documented as such.
+async fn metrics(State(state): State<AppState>) -> ApiResult<axum::response::Response> {
+    use std::collections::BTreeMap;
+
+    let goals = state.store.list_goals(5_000).await?;
+    let tasks = state.store.list_tasks(5_000).await?;
+    let runs = state.store.list_runs(5_000).await?;
+    let projects = state.store.list_projects().await?;
+
+    let mut goal_counts: BTreeMap<&str, i64> = BTreeMap::new();
+    for goal in &goals {
+        *goal_counts.entry(goal.status.as_str()).or_default() += 1;
+    }
+    let mut task_counts: BTreeMap<&str, i64> = BTreeMap::new();
+    for task in &tasks {
+        *task_counts.entry(task.status.as_str()).or_default() += 1;
+    }
+
+    let cost: f64 = runs.iter().map(|run| run.cost_usd).sum();
+    let tokens_in: i64 = runs.iter().map(|run| run.tokens_in).sum();
+    let tokens_out: i64 = runs.iter().map(|run| run.tokens_out).sum();
+
+    let mut body = String::new();
+    body.push_str("# HELP jcs_up Whether the daemon is serving.\n# TYPE jcs_up gauge\njcs_up 1\n");
+    body.push_str(&format!(
+        "# HELP jcs_uptime_seconds Daemon uptime.\n# TYPE jcs_uptime_seconds gauge\njcs_uptime_seconds {}\n",
+        state.uptime_secs()
+    ));
+    body.push_str(&format!(
+        "# HELP jcs_projects_total Registered projects.\n# TYPE jcs_projects_total gauge\njcs_projects_total {}\n",
+        projects.len()
+    ));
+
+    body.push_str("# HELP jcs_goals_total Goals by status.\n# TYPE jcs_goals_total gauge\n");
+    for (status, count) in &goal_counts {
+        body.push_str(&format!("jcs_goals_total{{status=\"{status}\"}} {count}\n"));
+    }
+    body.push_str("# HELP jcs_tasks_total Tasks by status.\n# TYPE jcs_tasks_total gauge\n");
+    for (status, count) in &task_counts {
+        body.push_str(&format!("jcs_tasks_total{{status=\"{status}\"}} {count}\n"));
+    }
+
+    body.push_str(&format!(
+        "# HELP jcs_cost_usd_total Cumulative model spend.\n# TYPE jcs_cost_usd_total counter\njcs_cost_usd_total {cost:.6}\n"
+    ));
+    body.push_str(&format!(
+        "# HELP jcs_tokens_total Tokens by direction.\n# TYPE jcs_tokens_total counter\njcs_tokens_total{{direction=\"in\"}} {tokens_in}\njcs_tokens_total{{direction=\"out\"}} {tokens_out}\n"
+    ));
+
+    Ok(([(header::CONTENT_TYPE, "text/plain; version=0.0.4")], body).into_response())
 }
 
 #[derive(Debug, Deserialize)]

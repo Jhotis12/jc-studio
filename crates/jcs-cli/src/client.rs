@@ -84,6 +84,22 @@ impl Client {
         self.get(&format!("/runs/{id}")).await
     }
 
+    pub async fn metrics(&self) -> Result<String> {
+        let response = self.send(hyper::Method::GET, "/metrics", None).await?;
+        let status = response.status();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .map(|collected| collected.to_bytes())
+            .unwrap_or_default();
+
+        if !status.is_success() {
+            anyhow::bail!("daemon returned {status} for /metrics");
+        }
+        Ok(String::from_utf8_lossy(&body).to_string())
+    }
+
     pub async fn memory_index(
         &self,
         project: &str,

@@ -84,7 +84,13 @@ Los seis deben pasar. Si uno falla, ese es el trabajo, no una fase nueva.
 Antes de tocar un subsistema, lee su ADR. Las ADR explican por qué algo es como es, y varias
 decisiones existen precisamente porque un enfoque obvio falló.
 
-## Siguiente trabajo: Fase 5 (revisión y seguridad)
+## Siguiente trabajo
+
+**Fase 5 completada** (gates, fitness functions, secretos, revisor, riesgo). **Fase 6
+operativa** (Telegram). **Fase 7 parcial** (métricas, systemd, doctor). Lo que queda:
+soak de 72 h, empaquetado `cargo dist`, runbook y el `/metrics` por proyecto.
+
+El detalle histórico de las fases 5.x se conserva debajo.
 
 Orden recomendado. Cada paso es un commit que compila y con tests.
 
