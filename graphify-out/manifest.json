@@ -138,8 +138,8 @@
     "semantic_hash": ""
   },
   "crates/jcs-daemon/src/http.rs": {
-    "mtime": 1795300014.8224719,
-    "seen": 1795300114.1519506,
+    "mtime": 1795300303.0950565,
+    "seen": 1795300336.4427147,
     "ast_hash": "f3dc3f90a8ca985be4d3b2a42b02a5e2",
     "semantic_hash": ""
   },
@@ -306,9 +306,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1795300089.4393778,
-    "seen": 1795300114.152747,
-    "ast_hash": "5d3e5fd9a6def778f006889dbbd29f25",
+    "mtime": 1795300335.295708,
+    "seen": 1795300336.4435718,
+    "ast_hash": "c33c2c41fdf7a72c31f57637ae8a6919",
     "semantic_hash": ""
   },
   "docs/adr/0001-daemon-thin-client.md": {
@@ -690,9 +690,9 @@
     "semantic_hash": ""
   },
   "docs/STATUS.md": {
-    "mtime": 1795300089.438827,
-    "seen": 1795300114.1528866,
-    "ast_hash": "4074c50a49b4dcbc63de9ffb31d41c78",
+    "mtime": 1795300335.2952423,
+    "seen": 1795300336.4437082,
+    "ast_hash": "f2232bc7587def271e66dfeb5437691b",
     "semantic_hash": ""
   },
   "docs/adr/0009-code-memory.md": {
@@ -720,9 +720,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-app/src/app.rs": {
-    "mtime": 1795299996.2161312,
-    "seen": 1795300114.151556,
-    "ast_hash": "e7534916a4adfcb6b9ad768714bd73b4",
+    "mtime": 1795300303.094488,
+    "seen": 1795300336.4422567,
+    "ast_hash": "cf01f8cc8b1eceb09e06a30dbf319f2f",
     "semantic_hash": ""
   },
   "crates/jcs-app/src/daemon.rs": {
@@ -768,9 +768,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/mod.rs": {
-    "mtime": 1795299971.940014,
-    "seen": 1795300114.1516495,
-    "ast_hash": "fca546ca298e2175a77699f0eca89748",
+    "mtime": 1795300303.0948813,
+    "seen": 1795300336.44238,
+    "ast_hash": "7ede9fac50b926bff63bac21d4973382",
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/policy.rs": {
@@ -888,15 +888,15 @@
     "semantic_hash": ""
   },
   "docs/HANDOFF.md": {
-    "mtime": 1795300089.4390469,
-    "seen": 1795300114.1528752,
-    "ast_hash": "454faa01bad17849049842bf4d7e0520",
+    "mtime": 1795300335.295462,
+    "seen": 1795300336.4436972,
+    "ast_hash": "e44704de7bcfaad0917f2e88cae6de2e",
     "semantic_hash": ""
   },
   "docs/RUNBOOK.md": {
-    "mtime": 1795300089.4391325,
-    "seen": 1795300114.1528857,
-    "ast_hash": "ebbfc0c30ad8e7070d20aa7c3e1b9c41",
+    "mtime": 1795300335.2955537,
+    "seen": 1795300336.4437075,
+    "ast_hash": "74182c90b17d872a1c8027d81ed2e963",
     "semantic_hash": ""
   },
   "docs/adr/0010-desktop-app-egui.md": {
@@ -984,9 +984,9 @@
     "semantic_hash": ""
   },
   "crates/jcs-app/src/ui/orchestrator.rs": {
-    "mtime": 1795300014.823124,
-    "seen": 1795300114.1516514,
-    "ast_hash": "8f927f10d5a809fe1c5a8e61e5501987",
+    "mtime": 1795300309.8501806,
+    "seen": 1795300336.4423814,
+    "ast_hash": "aa4c70a4e40c38ac86ee992289d92151",
     "semantic_hash": ""
   },
   "crates/jcs-store/src/orchestrator.rs": {
@@ -996,9 +996,9 @@
     "semantic_hash": ""
   },
   "docs/adr/0015-orchestrator-chat.md": {
-    "mtime": 1795300089.4164448,
-    "seen": 1795300114.1530323,
-    "ast_hash": "6bd1fa3cdeb33ea271f356184b3ee82b",
+    "mtime": 1795300335.2951045,
+    "seen": 1795300336.4438553,
+    "ast_hash": "fd238f5211de8e383bd2414741dd9b7e",
     "semantic_hash": ""
   }
 }
