@@ -12,6 +12,7 @@ mod merge;
 mod planner;
 mod reviewer;
 mod scheduler;
+mod settings;
 mod state;
 mod telegram;
 mod uds;
@@ -28,6 +29,7 @@ use serde_json::json;
 use tracing_subscriber::EnvFilter;
 
 use crate::config::Config;
+use crate::settings::RuntimeSettings;
 use crate::state::AppState;
 
 #[derive(Debug, Parser)]
@@ -109,7 +111,19 @@ async fn main() -> Result<()> {
         );
     }
 
-    let state = AppState::new(store, Arc::new(config.clone()), Arc::new(packs), embeddings);
+    // Saved settings beat the environment; a fresh install starts from the environment.
+    let stored = store.setting("runtime").await.unwrap_or_else(|error| {
+        tracing::error!(error = %error, "cannot read saved settings; using the environment");
+        None
+    });
+    let runtime = Arc::new(RuntimeSettings::load(&config, stored.as_deref()));
+    let state = AppState::new(
+        store,
+        Arc::new(config.clone()),
+        Arc::new(packs),
+        embeddings,
+        runtime,
+    );
 
     // Crash recovery: a `started` run means the previous process died mid-flight.
     // Recovery must never prevent the daemon from booting: refusing to start would leave

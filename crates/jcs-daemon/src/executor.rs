@@ -150,18 +150,11 @@ async fn run_task(state: &AppState, dispatch: &TaskDispatch, guard: &LeaseGuard)
         .await
         .map_err(|error| anyhow!(error.message))?;
 
-    let model = match dispatch
-        .model
-        .clone()
-        .or_else(|| state.config.default_model.clone())
-    {
+    let model = match dispatch.model.clone().or_else(|| state.default_model()) {
         Some(reference) => Some(ModelRef::parse(&reference)?),
         None => None,
     };
-    let agent_name = dispatch
-        .agent
-        .clone()
-        .or_else(|| state.config.default_agent.clone());
+    let agent_name = dispatch.agent.clone().or_else(|| state.default_agent());
 
     let session = agent
         .create_session(jcs_agent::CreateSession {
@@ -205,7 +198,7 @@ async fn run_task(state: &AppState, dispatch: &TaskDispatch, guard: &LeaseGuard)
             PumpResult::TimedOut => {
                 return Err(anyhow!(
                     "the run exceeded its {}s budget and was stopped",
-                    state.config.run_timeout_secs
+                    state.run_timeout_secs()
                 ));
             }
         }
@@ -230,7 +223,7 @@ async fn run_task(state: &AppState, dispatch: &TaskDispatch, guard: &LeaseGuard)
 
         // Review runs only after the executable checks pass: there is no point spending a
         // model call reviewing code that does not compile.
-        if failures.is_empty() && state.config.review {
+        if failures.is_empty() && state.review() {
             match crate::reviewer::review(state, &project, &goal, &task, &worktree, &base_branch)
                 .await
             {
@@ -291,7 +284,7 @@ async fn run_task(state: &AppState, dispatch: &TaskDispatch, guard: &LeaseGuard)
             .await;
         }
 
-        if repair_cycles >= state.config.max_repair_cycles {
+        if repair_cycles >= state.max_repair_cycles() as usize {
             let question = format!(
                 "verification failed after {repair_cycles} repair cycle(s); still failing: {}. \
                  Inspect the worktree, fix the cause, or adjust the policy.",
@@ -441,7 +434,7 @@ async fn pump_events(
     let mut reconcile_tick = interval(RECONCILE_INTERVAL);
     reconcile_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-    let deadline = tokio::time::sleep(Duration::from_secs(state.config.run_timeout_secs));
+    let deadline = tokio::time::sleep(Duration::from_secs(state.run_timeout_secs()));
     tokio::pin!(deadline);
 
     let mut buffer = String::new();
@@ -1034,13 +1027,13 @@ async fn with_memory_context(
     task: &Task,
     mut prompt: String,
 ) -> String {
-    if state.config.context_tokens == 0 {
+    if state.context_tokens() == 0 {
         return prompt;
     }
 
     let options = jcs_memory::ContextOptions {
         query: format!("{}\n{}", goal.prompt, task.title),
-        budget_tokens: state.config.context_tokens,
+        budget_tokens: state.context_tokens() as usize,
         limit: 8,
     };
 

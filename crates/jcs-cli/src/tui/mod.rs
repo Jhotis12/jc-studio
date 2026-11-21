@@ -14,8 +14,8 @@ use jcs_proto::{AskRequest, PermissionMode};
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use tokio::sync::mpsc;
 
-use crate::client::Client;
 use app::{Action, App};
+use jcs_client::Client;
 
 /// Snapshot refresh interval. Events keep the interface live between refreshes.
 const REFRESH: Duration = Duration::from_secs(2);

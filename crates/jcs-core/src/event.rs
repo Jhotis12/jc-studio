@@ -85,8 +85,9 @@ event_kinds! {
     CommitCreated => "commit_created",
     MergeFinished => "merge_finished",
 
-    // policy
+    // policy and runtime configuration
     PolicyRendered => "policy_rendered",
+    SettingsChanged => "settings_changed",
 
     // memory
     MemoryIndexed => "memory_indexed",
@@ -108,6 +109,7 @@ impl EventKind {
                 | Self::MergeFinished
                 | Self::GoalStatusChanged
                 | Self::TaskStatusChanged
+                | Self::SettingsChanged
         )
     }
 }

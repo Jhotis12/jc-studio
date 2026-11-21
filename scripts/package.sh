@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Builds a reproducible Linux release tarball.
+# Builds a Linux release tarball: daemon, CLI, desktop application, installer and docs.
 #
-# Deliberately a script, not a distribution framework: the artifact is two static-ish
-# binaries plus docs, and a script that a reviewer can read beats a generator whose output
-# nobody inspects. `cargo-dist` remains an option if GitHub Releases are adopted later.
+# Deliberately a script, not a distribution framework: the artifact is three binaries plus
+# desktop metadata, and a script a reviewer can read beats a generator nobody inspects.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -22,26 +21,31 @@ echo "packaging $NAME"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 
-cargo build --release --locked --manifest-path "$ROOT/Cargo.toml" --bin jcsd --bin jcs
+cargo build --release --locked --manifest-path "$ROOT/Cargo.toml" \
+    --bin jcsd --bin jcs --bin jc-studio
 
 install -m 0755 "$ROOT/target/release/jcsd" "$STAGE/jcsd"
 install -m 0755 "$ROOT/target/release/jcs" "$STAGE/jcs"
+install -m 0755 "$ROOT/target/release/jc-studio" "$STAGE/jc-studio"
 
 install -m 0644 "$ROOT/README.md" "$STAGE/README.md"
 install -m 0644 "$ROOT/docs/RUNBOOK.md" "$STAGE/RUNBOOK.md"
 install -m 0755 "$ROOT/contrib/install.sh" "$STAGE/install.sh"
 install -m 0644 "$ROOT/contrib/jcsd.service" "$STAGE/jcsd.service"
+install -m 0644 "$ROOT/contrib/jc-studio.desktop" "$STAGE/jc-studio.desktop"
+install -m 0644 "$ROOT/contrib/jc-studio.svg" "$STAGE/jc-studio.svg"
+cp -r "$ROOT/contrib/licenses" "$STAGE/licenses"
 
-# The installer expects the binaries next to it when run from an extracted tarball.
 cat > "$STAGE/INSTALL.txt" <<'EOF'
 JC Studio — instalación desde este tarball
 
-  ./install.sh              # binarios en ~/.local/bin + unidad systemd
+  ./install.sh              # binarios, unidad systemd y entrada de menú
   systemctl --user daemon-reload
   systemctl --user enable --now jcsd
   jcs doctor
 
-El instalador usa los binarios que están junto a este archivo; no compila nada.
+Después abre «JC Studio» desde el menú de aplicaciones. El instalador usa los binarios que
+están junto a este archivo; no compila nada.
 EOF
 
 tar -czf "$OUT/$NAME.tar.gz" -C "$OUT" "$NAME"

@@ -13,17 +13,13 @@ name = "jcs"
 path = "src/main.rs"
 
 [dependencies]
+jcs-client = { workspace = true }
 jcs-core = { workspace = true }
 jcs-proto = { workspace = true }
 
 anyhow = { workspace = true }
-bytes = { workspace = true }
 clap = { workspace = true }
-http-body-util = { workspace = true }
-hyper = { workspace = true }
-hyper-util = { workspace = true }
 ratatui = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 

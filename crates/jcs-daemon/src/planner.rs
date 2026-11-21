@@ -25,18 +25,26 @@ pub async fn plan_goal(state: &AppState, goal: &Goal, project: &Project) -> Resu
         .await
         .map_err(|error| anyhow!(error.message))?;
 
+    // The model named in the request belongs to the goal, not only to its tasks. Planning
+    // with a different (often unavailable) default is how `--model` silently did nothing.
+    let goal_settings = state
+        .store
+        .goal_settings(&goal.id)
+        .await
+        .context("cannot read the goal settings for planning")?;
+    let model = state
+        .planning_model()
+        .or(goal_settings.model)
+        .or_else(|| state.default_model())
+        .map(|reference| ModelRef::parse(&reference))
+        .transpose()?;
+    let planning_agent = state.planning_agent().or(goal_settings.agent);
     let session = agent
         .create_session(jcs_agent::CreateSession {
             title: "plan",
             directory: &project.root_path,
-            model: state
-                .config
-                .planning_model
-                .clone()
-                .or_else(|| state.config.default_model.clone())
-                .map(|reference| ModelRef::parse(&reference))
-                .transpose()?,
-            agent: state.config.planning_agent.as_deref(),
+            model,
+            agent: planning_agent.as_deref(),
             permissions: None,
         })
         .await

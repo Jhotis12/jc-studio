@@ -409,6 +409,57 @@ pub struct MemoryStatsView {
     pub semantic_enabled: bool,
 }
 
+/// Effective daemon settings, with the ones that need a restart.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SettingsView {
+    #[serde(default)]
+    pub default_model: Option<String>,
+    #[serde(default)]
+    pub default_agent: Option<String>,
+    #[serde(default)]
+    pub planning_model: Option<String>,
+    #[serde(default)]
+    pub planning_agent: Option<String>,
+    #[serde(default)]
+    pub review_model: Option<String>,
+    pub review: bool,
+    pub risk_max_lines: u64,
+    pub run_timeout_secs: u64,
+    pub context_tokens: u64,
+    pub max_repair_cycles: u64,
+    pub max_concurrent: u64,
+    /// Settings changed at runtime whose new value only applies after restarting `jcsd`.
+    #[serde(default)]
+    pub restart_required: Vec<String>,
+}
+
+/// Partial update. A missing field is unchanged; an empty string clears a model or agent.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SettingsPatch {
+    #[serde(default)]
+    pub default_model: Option<String>,
+    #[serde(default)]
+    pub default_agent: Option<String>,
+    #[serde(default)]
+    pub planning_model: Option<String>,
+    #[serde(default)]
+    pub planning_agent: Option<String>,
+    #[serde(default)]
+    pub review_model: Option<String>,
+    #[serde(default)]
+    pub review: Option<bool>,
+    #[serde(default)]
+    pub risk_max_lines: Option<u64>,
+    #[serde(default)]
+    pub run_timeout_secs: Option<u64>,
+    #[serde(default)]
+    pub context_tokens: Option<u64>,
+    #[serde(default)]
+    pub max_repair_cycles: Option<u64>,
+    #[serde(default)]
+    pub max_concurrent: Option<u64>,
+}
+
 /// An event as it appears on the client stream.
 ///
 /// This is the domain event: one representation everywhere, so a client and the
@@ -418,6 +469,14 @@ pub type EventDto = jcs_core::Event;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_patch_is_partial() {
+        let patch: SettingsPatch = serde_json::from_str(r#"{"review":true}"#).unwrap();
+        assert_eq!(patch.review, Some(true));
+        assert!(patch.default_model.is_none());
+        assert!(patch.run_timeout_secs.is_none());
+    }
 
     #[test]
     fn permission_mode_defaults_to_auto() {

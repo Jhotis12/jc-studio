@@ -29,6 +29,10 @@ allow = [
     "MPL-2.0",
     "BSL-1.0",
     "CDLA-Permissive-2.0",
+    # egui's bundled default fonts (epaint_default_fonts). Both are permissive and only
+    # require the license text to travel with the font, which the crate package carries.
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
 ]
 
 [bans]

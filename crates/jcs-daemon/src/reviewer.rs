@@ -138,10 +138,8 @@ pub async fn review(
             title: "review",
             directory: worktree,
             model: state
-                .config
-                .review_model
-                .clone()
-                .or_else(|| state.config.default_model.clone())
+                .review_model()
+                .or_else(|| state.default_model())
                 .map(|reference| ModelRef::parse(&reference))
                 .transpose()?,
             agent: None,

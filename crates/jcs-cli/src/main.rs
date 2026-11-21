@@ -3,7 +3,6 @@
 //! A thin client: it renders, it asks, it never owns state. Everything durable lives in
 //! `jcsd` behind the unix socket (ADR 0001).
 
-mod client;
 mod render;
 mod tui;
 
@@ -14,7 +13,7 @@ use clap::{Args, Parser, Subcommand};
 use jcs_core::EventKind;
 use jcs_proto::{AddProjectRequest, AskRequest, PermissionMode};
 
-use crate::client::Client;
+use jcs_client::Client;
 
 #[derive(Debug, Parser)]
 #[command(

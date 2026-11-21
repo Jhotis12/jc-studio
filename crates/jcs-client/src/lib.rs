@@ -84,6 +84,17 @@ impl Client {
         self.get(&format!("/runs/{id}")).await
     }
 
+    pub async fn settings(&self) -> Result<jcs_proto::SettingsView> {
+        self.get("/settings").await
+    }
+
+    pub async fn update_settings(
+        &self,
+        patch: &jcs_proto::SettingsPatch,
+    ) -> Result<jcs_proto::SettingsView> {
+        self.put("/settings", patch).await
+    }
+
     pub async fn metrics(&self) -> Result<String> {
         let response = self.send(hyper::Method::GET, "/metrics", None).await?;
         let status = response.status();

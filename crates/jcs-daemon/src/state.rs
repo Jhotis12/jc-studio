@@ -10,6 +10,7 @@ use tokio::sync::{OnceCell, Semaphore};
 
 use crate::config::Config;
 use crate::error::ApiError;
+use crate::settings::RuntimeSettings;
 
 /// Lazily discovered backend client.
 ///
@@ -61,6 +62,8 @@ pub struct AppState {
     pub started_at_ms: i64,
     /// Bounds how many tasks execute at once.
     pub permits: Arc<Semaphore>,
+    /// Values the operator can change from the interface.
+    pub runtime: Arc<RuntimeSettings>,
 }
 
 impl AppState {
@@ -69,8 +72,11 @@ impl AppState {
         config: Arc<Config>,
         packs: Arc<BTreeMap<String, Pack>>,
         embeddings: Option<Arc<Embeddings>>,
+        runtime: Arc<RuntimeSettings>,
     ) -> Self {
-        let permits = Arc::new(Semaphore::new(config.max_concurrent));
+        let permits = Arc::new(Semaphore::new(
+            runtime.max_concurrent().try_into().unwrap_or(1),
+        ));
         Self {
             store,
             config,
@@ -81,7 +87,51 @@ impl AppState {
             started_at: Instant::now(),
             started_at_ms: jiff::Timestamp::now().as_millisecond(),
             permits,
+            runtime,
         }
+    }
+
+    // The scheduler and executor read these on every task, so a change in the interface
+    // applies to the next dispatch without restarting the daemon.
+
+    pub fn default_model(&self) -> Option<String> {
+        self.runtime.default_model()
+    }
+
+    pub fn default_agent(&self) -> Option<String> {
+        self.runtime.default_agent()
+    }
+
+    pub fn planning_model(&self) -> Option<String> {
+        self.runtime.planning_model()
+    }
+
+    pub fn planning_agent(&self) -> Option<String> {
+        self.runtime.planning_agent()
+    }
+
+    pub fn review_model(&self) -> Option<String> {
+        self.runtime.review_model()
+    }
+
+    pub fn review(&self) -> bool {
+        self.runtime.review()
+    }
+
+    pub fn risk_max_lines(&self) -> u64 {
+        self.runtime.risk_max_lines()
+    }
+
+    pub fn run_timeout_secs(&self) -> u64 {
+        self.runtime.run_timeout_secs()
+    }
+
+    pub fn context_tokens(&self) -> u64 {
+        self.runtime.context_tokens()
+    }
+
+    pub fn max_repair_cycles(&self) -> u64 {
+        self.runtime.max_repair_cycles()
     }
 
     pub fn uptime_secs(&self) -> u64 {

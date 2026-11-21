@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=JC Studio
+GenericName=Agent Orchestrator
+Comment=Control plane for multi-agent work: objectives, gates, memory and terminals
+Exec=jc-studio
+TryExec=jc-studio
+Icon=jc-studio
+Terminal=false
+Categories=Development;IDE;
+Keywords=agents;git;orchestrator;opencode;
+StartupNotify=true
+StartupWMClass=jc-studio

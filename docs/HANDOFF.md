@@ -4,30 +4,34 @@ Documento de relevo para un agente (o una persona) que retoma el proyecto **sin 
 previo**. Si acabas de salir de una compactación: lee esto, luego `docs/STATUS.md`, y no
 hagas `git log` completo para reconstruir la historia.
 
-Última actualización: 2026-11-21, tras cerrar la Fase 4.
+Última actualización: 2026-11-21, tras la primera entrega de la app de escritorio.
 
 ## Qué es esto
 
-JC Studio: IDE de consola + orquestador multi-agente. Daemon durable (`jcsd`) + cliente
-fino (`jcs`) por Unix socket. **OpenCode es el motor de agentes; nosotros somos el plano de
-control**: objetivos, DAG, política ejecutable, gates, memoria, git e integración.
+JC Studio: orquestador multi-agente con daemon durable (`jcsd`) y dos clientes finos:
+la **app de escritorio instalable** `jc-studio` (egui, con terminales embebidas) y el CLI
+`jcs` (scripting y TUI para SSH). **OpenCode es el motor de agentes; nosotros somos el plano
+de control**: objetivos, DAG, política ejecutable, gates, memoria, git e integración.
 
 ## Estado en una frase
 
-**Fases 0–4 completas y verificadas.** El sistema planifica un objetivo, ejecuta tareas en
-paralelo con leases, las verifica con gates, las integra en una rama de objetivo y la
-promociona a la base; indexa el código y le pasa al agente contexto citado.
+**Fases 0–7 completas; Fase 8 funcional.** El sistema planifica un objetivo, ejecuta tareas
+en paralelo con leases, las verifica con gates, las integra en una rama de objetivo y la
+promociona a la base; indexa el código, le pasa al agente contexto citado y la app de
+escritorio permite operar todo sin tocar la consola.
 
-- 46 commits, 10 crates, ~21 000 líneas de Rust, **256 tests**.
+- 12 crates, **305 tests**, árbol limpio.
 - `cargo fmt --check`, `cargo clippy -D warnings`, `cargo nextest`, `cargo deny check`:
   todo en verde.
-- Árbol de trabajo limpio. Nada pendiente de commit.
+- Soak verde; tarball Linux con `jcsd`, `jcs` y `jc-studio` (`./scripts/package.sh`).
+- Lo que queda de la Fase 8: PTY en el daemon, secretos en el llavero, catálogos de modelos
+  y `.deb`/AppImage.
 
 ## Verificación en 60 segundos
 
 ```bash
 cargo build --bins
-cargo nextest run --workspace        # 256 tests
+cargo nextest run --workspace        # 305 tests
 python3 scripts/check_contract.py    # contrato de OpenCode
 cargo deny check                     # licencias y avisos
 ```
@@ -42,6 +46,8 @@ just e2e-plan     # descomposición en DAG
 just e2e-merge    # DAG + integración + promoción a main
 just e2e-memory   # índice + búsqueda citada + contexto en el prompt
 just chaos        # kill -9 a mitad de run y recuperación
+just soak         # presupuesto, auditoría, reanudación y fugas
+cargo test -p jcs-app                 # estado de la app y PTY real
 ```
 
 Los seis deben pasar. Si uno falla, ese es el trabajo, no una fase nueva.
@@ -75,8 +81,10 @@ Los seis deben pasar. Si uno falla, ese es el trabajo, no una fase nueva.
 | `crates/jcs-policy` | Packs TOML, composición, render determinista, lock/drift |
 | `crates/jcs-memory` | tree-sitter, grafo, FTS5, embeddings opcionales, context broker |
 | `crates/jcs-daemon` | `jcsd`: HTTP/UDS, scheduler, planner, merge queue, executor |
+| `crates/jcs-client` | Cliente del socket: peticiones y stream NDJSON (lo usan CLI y app) |
 | `crates/jcs-cli` | `jcs`: comandos + TUI ratatui |
-| `docs/adr` | **Las decisiones y sus motivos** (0001–0009) |
+| `crates/jcs-app` | `jc-studio`: app egui, estado de UI, terminal PTY, ajustes |
+| `docs/adr` | **Las decisiones y sus motivos** (0001–0010) |
 | `docs/STATUS.md` | Avance por fase y qué falta exactamente |
 | `docs/PENDING.md` | Riesgos aceptados y decisiones diferidas |
 | `scripts/` | Los seis E2E; son la evidencia de las afirmaciones |
@@ -86,18 +94,30 @@ decisiones existen precisamente porque un enfoque obvio falló.
 
 ## Siguiente trabajo
 
-**Fase 5 completada** (gates, fitness functions, secretos, revisor, riesgo). **Fase 6
-operativa** (Telegram). **Fase 7 parcial**: métricas, systemd, doctor, `contrib/install.sh`, `scripts/package.sh` (tarball Linux
-verificado), `docs/RUNBOOK.md` y `scripts/soak.sh` (**verde**). Lo que queda: artefactos
-macOS/aarch64, soak largo y Telegram real (ambos los hará el operador).
+**Fases 5–7 completas** (gates, secretos, revisor, riesgo, Telegram operativo, soak verde,
+tarball Linux). **Fase 8 funcional**: la app de escritorio ya opera proyectos, objetivos,
+detalle, política, memoria, ajustes, eventos y terminales.
+
+Orden recomendado. Cada paso es un commit que compila y con tests:
+
+1. **PTY en el daemon.** Endpoints `/pty` (crear), `/pty/{id}/input`, `/pty/{id}/resize`,
+   `/pty/{id}/stream` y `/pty/{id}` (cerrar), con una sesión por id y limpieza al salir.
+   La app cambia `terminal::Terminals` por un cliente de esos endpoints; el widget no cambia.
+   Sirve para que cerrar la ventana no mate un `opencode` a mitad de tarea.
+2. **Secretos en el llavero.** `secret-service` (o archivo 0600 si no hay escritorio) para
+   token de Telegram y clave de embeddings; la API solo devuelve «configurado» y los últimos
+   cuatro caracteres. Nunca a `settings`.
+3. **Catálogos en ajustes.** Modelos (con coste y contexto), agentes y packs desde el daemon;
+   selectores en vez de texto libre. `GET /catalog/*` o reutilizar el backend con una capa.
+4. **Distribución.** `.deb`/AppImage, instancia única por socket, y artefactos macOS/aarch64.
+5. **Operador:** prueba real de Telegram (token/chat id) y soak de 72 h
+   (`SOAK_BUDGET_TOKENS=<alto> ./scripts/soak.sh`).
 
 **Modelos para E2E:** usar `opencode-go/hy4-flash-free` (coste $0, credencial ya activa en
 OpenCode). Los modelos del proveedor `opencode` (gratuitos sin credencial) fallaron con
 0 tokens en esta máquina; no son una base fiable para tests.
 
 El detalle histórico de las fases 5.x se conserva debajo.
-
-Orden recomendado. Cada paso es un commit que compila y con tests.
 
 ### 5.3 Fitness functions arquitectónicas — HECHO
 
@@ -153,19 +173,27 @@ token): antes de confiar en él, levantar el bot con un token de prueba y verifi
 
 ## Fase 8 — app de escritorio (egui)
 
-El usuario corrigió la dirección: no quiere una TUI lanzada por consola, quiere una **app
-instalable** con terminales embebidas, orientada a agentes. El backend no cambia.
+El cliente principal es una **app instalable** orientada a agentes, no una TUI lanzada por
+consola. La decisión y las alternativas están en la
+[ADR 0010](adr/0010-desktop-app-egui.md). El backend no cambia.
 
-- Crate: `crates/jcs-app`, binario `jc-studio`, `eframe`/`egui` **0.31** (0.37 cambió
+- Crate `crates/jcs-app`, binario `jc-studio`, `eframe`/`egui` **0.31** (0.37 cambió
   `eframe::App` a `ui(&mut Ui)` y movió los paneles; no usar 0.37 sin adaptar).
-- Terminal: **no** usar `egui_term` (anclado a egui viejo). Construir sobre
-  `alacritty_terminal` (estado/ANSI) + `portable-pty` (PTY) con un widget propio.
-- PTYs: primero en la app; después en el daemon (`/pty` + stream) para que sobrevivan al
-  cierre de la ventana.
-- Empaquetado: `.desktop`, icono, AppImage/deb. La TUI (`jcs tui`) queda como cliente
-  secundario para SSH; el CLI sigue siendo la superficie de scripting.
-- Ajustes: el análisis de la fase anterior sigue vigente (esquema, formularios, secretos en
-  keyring, "requiere reinicio").
+- `src/daemon.rs`: hilo dedicado con runtime Tokio; comandos por canal y actualizaciones por
+  `std::sync::mpsc`. Snapshots `/status` cada 2 s + `/events?since` con reconexión.
+  Las acciones lentas (gates, indexación) se lanzan en su propia tarea.
+- `src/state.rs`: espejo del snapshot; selección, coste por objetivo, deduplicación de
+  eventos por `seq`, consola acotada a 1000 líneas.
+- `src/ui/`: shell responsive (tres paneles en ventana ancha, pestaña Detalle en estrecha),
+  tablero, detalle, política, memoria, sistema, ajustes y ventanas modales.
+- `src/terminal.rs`: `portable-pty` + `vt100` (no `egui_term`, anclado a egui viejo).
+  Teclado, scrollback con rueda, resize del PTY y color 256. Las sesiones viven en el proceso
+  de la app; **mover el PTY al daemon es el siguiente paso** para que sobrevivan al cierre.
+- Ajustes: formulario global y por proyecto; el daemon valida, persiste en `settings` y
+  emite `settings_changed`. `max_concurrent` se aplica al reiniciar y la UI lo avisa.
+  Los secretos **no** van a SQLite: quedan pendientes del llavero.
+- Empaquetado: `scripts/package.sh` incluye los tres binarios, `.desktop`, icono y
+  `install.sh`; el instalador registra la app en el menú. Validado en un prefijo limpio.
 
 ## Trampas ya encontradas (no repetirlas)
 
@@ -178,6 +206,13 @@ instalable** con terminales embebidas, orientada a agentes. El backend no cambia
 - El stream de OpenCode **no** usa el campo SSE `event:`; el tipo va dentro del JSON.
 - El planificador debe leer el mensaje final por REST: suscribirse después del prompt pierde
   respuestas rápidas.
+- egui 0.31 usa `Frame::new()` y `Margin`; `Frame` no expone `response`, hay que capturar el
+  `InnerResponse` que devuelve `show`.
+- `vt100::Parser::new` y `set_size` piden `NonZeroU16`, no `u16`.
+- La API de política y memoria recibe **nombre o ruta** de proyecto, no el id (`prj_...`).
+  La app debe resolver el nombre desde el snapshot antes de pedir.
+- Un panel derecho de 390 px más uno izquierdo de 250 no caben en una ventana de 476 px:
+  la app oculta paneles según el ancho y convierte el detalle en pestaña.
 
 ## Entorno
 
@@ -187,6 +222,9 @@ instalable** con terminales embebidas, orientada a agentes. El backend no cambia
 - Riesgo aceptado: RUSTSEC-2026-0459 (SQLite empaquetado en sqlx 0.9). Condiciones de salida
   en `deny.toml` y `docs/PENDING.md`.
 - El grafo del repo está en `graphify-out/`; `graphify query "<pregunta>"` antes de grepear.
+- La app necesita sesión gráfica (Wayland o X11). Para probarla sin tocar el daemon real:
+  `JCS_SOCKET=/tmp/prueba.sock ./target/debug/jc-studio`, con un `jcsd` en el mismo socket.
+- Modelo de los E2E y del soak: `opencode-go/hy4-flash-free` ($0 con la credencial activa).
 
 ## Cómo cerrar una sesión de trabajo
 

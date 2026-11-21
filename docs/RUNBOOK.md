@@ -22,7 +22,8 @@ cd jc-studio-<versión>-x86_64-unknown-linux-gnu
 
 **Desde el repositorio:** `cargo build --release && ./contrib/install.sh`.
 
-Ambos instalan en `~/.local/bin` y la unidad en `~/.config/systemd/user/`.
+Ambos instalan en `~/.local/bin`, la unidad en `~/.config/systemd/user/`, y registran
+**JC Studio** en el menú de aplicaciones (`.desktop` + icono).
 
 ```bash
 systemctl --user daemon-reload
@@ -41,7 +42,38 @@ jcs status          # proyectos, objetivos, tareas, runs y coste
 jcs metrics         # texto Prometheus
 ```
 
+## La app de escritorio
+
+Abre **JC Studio** desde el menú o ejecuta `jc-studio`. Se conecta al mismo socket que el
+CLI y reintenta cada dos segundos si el daemon no está.
+
+| Zona | Qué hace |
+|---|---|
+| Proyectos | Registrar repositorios, ver objetivos y coste |
+| Objetivos | Componer un objetivo, planificar en DAG, seguir el estado |
+| Detalle | Tareas, dependencias, ejecuciones, gates y reanudación |
+| Política | Packs, reglas, gates, drift y ejecución manual |
+| Memoria | Estadísticas, indexación y búsqueda con citas |
+| Sistema | Salud del daemon, rutas y totales |
+| Consola | Eventos en vivo y terminales reales (PTY) |
+
+Los **ajustes** se editan en la ventana «Ajustes»: modelos, agente, revisión, techo de
+riesgo, timeout, contexto, reparación y concurrencia; por proyecto, auto-merge y
+presupuestos. El daemon valida, guarda en la base y registra `settings_changed`. Las
+variables de entorno son el **valor inicial**; a partir de ahí manda lo guardado. Cambiar
+la concurrencia requiere reiniciar `jcsd` (la app lo avisa).
+
+Las terminales viven en el proceso de la app: cerrar la ventana las termina. Mover el PTY
+al daemon está pendiente y se documenta como tal; no cierres la ventana en mitad de un
+comando largo dentro de una terminal.
+
+Si la app no abre: comprueba que hay sesión gráfica (`WAYLAND_DISPLAY` o `DISPLAY`) y que
+`jc-studio` está en el `PATH`. Si abre pero no conecta, revisa `jcs doctor`.
+
 ## Configuración
+
+La app es la vía normal. Las variables de entorno siguen existiendo como valor inicial y
+para automatización; lo guardado desde la interfaz tiene prioridad.
 
 | Variable | Por defecto | Para qué |
 |---|---|---|

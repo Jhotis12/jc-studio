@@ -23,7 +23,8 @@ use jcs_proto::{
     GateRunResponse, GateView, GoalView, HealthResponse, PackCatalogEntry, PolicyGateView,
     PolicyPackView, PolicyRuleView, PolicyView, ProjectListResponse, ProjectResponse, ProjectView,
     RenderPolicyRequest, RenderPolicyResponse, RenderedFileView, RunDetailResponse, RunView,
-    StatusResponse, TaskView, Totals, PROTOCOL_HEADER, PROTOCOL_VERSION,
+    SettingsPatch, SettingsView, StatusResponse, TaskView, Totals, PROTOCOL_HEADER,
+    PROTOCOL_VERSION,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -54,6 +55,7 @@ pub fn router(state: AppState) -> Router {
         .route("/gates", get(gates))
         .route("/gates/run", post(run_gates))
         .route("/metrics", get(metrics))
+        .route("/settings", get(settings).put(update_settings))
         .route("/memory/index", post(memory_index))
         .route("/memory/search", get(memory_search))
         .route("/memory/stats", get(memory_stats))
@@ -428,12 +430,14 @@ pub(crate) fn spawn_planning(state: AppState, goal: Goal, project: Project) {
 async fn fail_planning(state: &AppState, goal: &Goal, reason: &str) {
     tracing::error!(goal = %goal.id, reason, "planning failed");
 
+    // `pending -> failed` is not a legal transition: a goal that never started cannot have
+    // failed. Blocking keeps the objective and its text so the operator can retry it.
     if let Err(error) = state
         .store
-        .set_goal_status(&goal.id, GoalStatus::Failed)
+        .set_goal_status(&goal.id, GoalStatus::Blocked)
         .await
     {
-        tracing::warn!(error = %error, "cannot mark the goal as failed");
+        tracing::warn!(error = %error, "cannot mark the goal as blocked");
     }
 
     let event = NewEvent::new(EventKind::Error)
@@ -442,7 +446,7 @@ async fn fail_planning(state: &AppState, goal: &Goal, reason: &str) {
         .payload(json!({
             "category": "planning_failed",
             "reason": reason,
-            "hint": "the objective was not decomposed; run it with `jcs ask --no-plan`                      to execute it as a single task",
+            "hint": "the objective was not decomposed; fix the cause and `jcs resume` it, or run it with `jcs ask --no-plan` as a single task",
         }));
     if let Err(error) = jcs_store::append_event(&state.store, event).await {
         tracing::warn!(error = %error, "cannot record the planning failure");
@@ -803,6 +807,38 @@ async fn resume_goal(
     }))
 }
 
+async fn settings(State(state): State<AppState>) -> Json<SettingsView> {
+    Json(state.runtime.view())
+}
+
+/// Applies a partial update, persists it and records who changed what.
+///
+/// Validation lives here, not in the interface: a second client must not be able to write
+/// a timeout of zero or a negative concurrency just because it skipped the form.
+async fn update_settings(
+    State(state): State<AppState>,
+    Json(patch): Json<SettingsPatch>,
+) -> ApiResult<Json<SettingsView>> {
+    let (values, changed) = state
+        .runtime
+        .update(&patch)
+        .map_err(|message| ApiError::bad_request("invalid_settings", message))?;
+
+    if !changed.is_empty() {
+        // One row, complete values: a partial row would be worse than no row. The event
+        // records the keys, never a secret (there are none in this table).
+        let encoded = serde_json::to_string(&values)
+            .map_err(|error| ApiError::internal(format!("cannot encode settings: {error}")))?;
+        state.store.set_setting("runtime", &encoded).await?;
+
+        let mut event = NewEvent::new(EventKind::SettingsChanged);
+        event.payload = json!({ "changed": changed });
+        jcs_store::append_event(state.store.as_ref(), event).await?;
+    }
+
+    Ok(Json(state.runtime.view()))
+}
+
 /// Prometheus-style text metrics.
 ///
 /// Deliberately plain: a counter that a scraper can read and a human can `curl` without a
@@ -1151,11 +1187,13 @@ mod tests {
             telegram_token: None,
             telegram_chat_ids: Vec::new(),
         });
+        let runtime = Arc::new(crate::settings::RuntimeSettings::from_config(&config));
         AppState::new(
             store,
             config,
             Arc::new(jcs_policy::loader::builtin_packs().unwrap()),
             None,
+            runtime,
         )
     }
 
@@ -1277,6 +1315,89 @@ mod tests {
             ),
             "create a file named hello.md containing"
         );
+    }
+
+    #[tokio::test]
+    async fn a_planning_failure_blocks_the_goal_instead_of_leaving_it_pending() {
+        let state = test_state().await;
+        let directory = tempfile::tempdir().unwrap();
+        let project = Project {
+            id: ProjectId::new(),
+            name: "planner".to_string(),
+            root_path: directory.path().to_path_buf(),
+            base_branch: "main".to_string(),
+            created_at: jiff::Timestamp::now(),
+            auto_merge: false,
+            budget_usd_per_day: None,
+            budget_tokens_per_day: None,
+        };
+        state.store.insert_project(&project).await.unwrap();
+        let goal = state
+            .store
+            .create_goal_with_settings(&project.id, "do it", None, None, "auto")
+            .await
+            .unwrap();
+
+        fail_planning(&state, &goal, "the model is unavailable").await;
+
+        let stored = state.store.get_goal(&goal.id).await.unwrap().unwrap();
+        assert_eq!(stored.status, GoalStatus::Blocked);
+        let events = jcs_store::recent_events(state.store.as_ref(), 20)
+            .await
+            .unwrap();
+        assert!(events.iter().any(|event| {
+            event.kind == EventKind::Error
+                && event
+                    .payload
+                    .get("category")
+                    .and_then(|value| value.as_str())
+                    == Some("planning_failed")
+        }));
+    }
+
+    #[tokio::test]
+    async fn settings_are_validated_applied_and_audited() {
+        let state = test_state().await;
+        let app = router(state.clone());
+
+        let (status, body) = send(app.clone(), "GET", "/settings", None).await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["run_timeout_secs"], 60);
+        assert_eq!(body["review"], false);
+
+        // Out-of-range values never reach the store.
+        let (status, body) = send(
+            app.clone(),
+            "PUT",
+            "/settings",
+            Some(r#"{"run_timeout_secs":1}"#),
+        )
+        .await;
+        assert_eq!(status, 400, "{body}");
+        assert_eq!(body["code"], "invalid_settings");
+
+        let (status, body) = send(
+            app.clone(),
+            "PUT",
+            "/settings",
+            Some(r#"{"review":true,"default_model":"cheap/model","max_concurrent":4}"#),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["review"], true);
+        assert_eq!(body["restart_required"][0], "max_concurrent");
+
+        let (_, body) = send(app, "GET", "/settings", None).await;
+        assert_eq!(body["default_model"], "cheap/model");
+
+        let stored = state.store.setting("runtime").await.unwrap().unwrap();
+        assert!(stored.contains("cheap/model"));
+        let events = jcs_store::recent_events(state.store.as_ref(), 50)
+            .await
+            .unwrap();
+        assert!(events
+            .iter()
+            .any(|event| event.kind == EventKind::SettingsChanged));
     }
 
     #[tokio::test]

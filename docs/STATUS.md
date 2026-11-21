@@ -20,8 +20,9 @@ Si llegas aquí después de una compactación de contexto, el punto de entrada e
 | 5 — Revisión de código y seguridad | 6 | **completa** | 100 % |
 | 6 — Telegram | 4 | operativa | 85 % |
 | 7 — Hardening y distribución | 10 | casi completa (Linux empaquetado) | 80 % |
+| 8 — App de escritorio (egui) | 15 | funcional; faltan PTY en daemon y catálogos | 75 % |
 
-- **Producto completo (backend + app): ~72 %.**
+- **Producto completo (backend + app): ~85 %.**
 - **MVP (fases 0–4): ~99 %.**
 
 El porcentaje mide alcance, no riesgo. La tesis arquitectónica (daemon durable, agente real,
@@ -71,14 +72,24 @@ worktree aislado, gates, DAG, integración) está validada con tests y scripts.
 ## Fase 8: app de escritorio (egui)
 
 Decisión: cliente principal **instalable**, no una TUI lanzada por consola. Backend intacto.
+El razonamiento y las alternativas están en la [ADR 0010](adr/0010-desktop-app-egui.md).
 
-- [x] 8.0 Esqueleto eframe con layout (proyectos, objetivos, detalles, terminales) y arranque verificado.
-- [ ] 8.1 Cliente del daemon en la app (estado, eventos, reconexión).
-- [ ] 8.2 Tablero real: proyectos, objetivos, tareas, gates, diffs, runs.
-- [ ] 8.3 Terminal embebida: `alacritty_terminal` + `portable-pty`, con PTYs en el daemon
-      para que la sesión sobreviva al cerrar la ventana.
-- [ ] 8.4 Ajustes por interfaz (esquema, formularios, catálogos, secretos en keyring).
-- [ ] 8.5 Empaquetado de escritorio: `.desktop`, icono, AppImage/deb, instancia única.
+- [x] 8.0 Esqueleto eframe con layout y arranque verificado en Wayland.
+- [x] 8.1 Cliente del daemon en la app: hilo dedicado, snapshots `/status`, stream NDJSON con
+      cursor, reconexión con backoff y acciones por canal (nunca I/O en el frame).
+- [x] 8.2 Tablero real: proyectos, objetivos, DAG, tareas, ejecuciones, gates, política,
+      memoria, sistema y consola de eventos. Selección y detalle, compositor de objetivos.
+- [x] 8.3 Terminal embebida: `portable-pty` + `vt100`, teclado, scrollback, resize, cierre y
+      terminal por proyecto o por worktree de tarea. **Pendiente:** mover el PTY al daemon
+      para que la sesión sobreviva al cierre de la ventana.
+- [x] 8.4 Ajustes por interfaz: formulario global (modelo, agente, revisión, riesgo, timeout,
+      contexto, reparación, concurrencia) y ajustes por proyecto (auto-merge y presupuestos).
+      Validación en el daemon, persistencia en `settings`, evento `settings_changed` y aviso
+      de «requiere reiniciar». **Pendiente:** secretos en el llavero, catálogos de
+      modelos/agentes/packs y edición estructurada de política.
+- [x] 8.5 Empaquetado de escritorio Linux: `jc-studio` en el tarball, `.desktop`, icono,
+      instalador que registra la app en el menú. Verificado en un prefijo limpio.
+      **Pendiente:** `.deb`/AppImage, instancia única y actualizaciones.
 
 Nota: `egui 0.37` rediseñó `eframe::App`; la app está anclada a **0.31** hasta que la nueva
 API esté documentada y probada.
@@ -94,19 +105,23 @@ API esté documentada y probada.
 - [x] Empaquetado Linux: `scripts/package.sh` (tarball + SHA-256), instalador desde el
       tarball y workflow de release. Verificado en un prefijo limpio.
 - [ ] macOS y Linux aarch64 (artefactos adicionales; mismo script, otro target).
-- [ ] Endpoint de métricas por proyecto (hoy agregado) y panel en la TUI.
+- [x] Métricas por proyecto (`jcs_project_cost_usd_total`).
+- [ ] Panel de métricas en la TUI clásica (la app de escritorio ya muestra coste y memoria).
 
 ## Evidencia reproducible
 
 | Comando | Qué demuestra |
 |---|---|
-| `cargo nextest run --workspace` | 220+ tests unitarios, de propiedad y de integración |
+| `cargo nextest run --workspace` | **305 tests** unitarios, de propiedad y de integración |
 | `just e2e` | objetivo → worktree → agente → gates → commit |
 | `just e2e-policy` | gate que exige un token: prueba el bucle de reparación |
 | `just e2e-plan` | objetivo → plan → DAG → tareas → entregables |
 | `just e2e-merge` | DAG → integración → promoción a la base, sin ramas residuales |
 | `just e2e-memory` | índice → búsqueda citada → incremental → contexto en el prompt |
 | `just chaos` | `kill -9` a mitad de run → `interrupted` + `blocked`, sin commits parciales |
+| `just soak` | techo de presupuesto → bloqueo auditado → reanudación → sin fugas |
+| `cargo test -p jcs-app` | formularios, estado de la app y un PTY real que ejecuta un comando |
+| `./scripts/package.sh` | tarball con daemon, CLI y app; `.desktop` validado e instalación limpia |
 | `just audit` | licencias y avisos de dependencias |
 
 ## Riesgos aceptados
@@ -116,5 +131,8 @@ empaquetado en `sqlx` 0.9), aceptado con precondiciones y dos condiciones de sal
 
 ## Siguiente
 
-Fase 5: revisión de código con rúbrica y salida estructurada, suite estática completa,
-fitness functions arquitectónicas y enrutado por riesgo.
+1. Mover el PTY al daemon (`/pty`, stream y resize) para que las terminales sobrevivan al
+   cierre de la ventana y a un reinicio de la app.
+2. Secretos en el llavero del sistema y catálogos de modelos/agentes/packs en los ajustes.
+3. `.deb`/AppImage e instancia única; artefactos macOS y Linux aarch64.
+4. Prueba real de Telegram (token del operador) y soak largo de 72 h.

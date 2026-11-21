@@ -254,17 +254,17 @@ pub async fn promote(
     let lines = repo
         .changed_lines_between(&project.base_branch, integration)
         .await?;
-    if lines > state.config.risk_max_lines as i64 {
+    let limit = state.risk_max_lines();
+    if lines > limit as i64 {
         return Err(anyhow!(
-            "the change touches {lines} lines, above the {} line auto-merge limit; \
-             review it manually or raise JCS_RISK_MAX_LINES",
-            state.config.risk_max_lines
+            "the change touches {lines} lines, above the {limit} line auto-merge limit; \
+             review it manually or raise the limit in Ajustes"
         ));
     }
 
     // When review is enabled, every task must have a passing review verdict. A green gate
     // suite is not the same as a reviewed change.
-    if state.config.review {
+    if state.review() {
         require_reviews(state, goal).await?;
     }
 

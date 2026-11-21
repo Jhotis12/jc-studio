@@ -59,6 +59,10 @@ e2e-merge:
 e2e-memory:
     ./scripts/e2e-memory.sh
 
+# Run the desktop application
+app:
+    cargo run -p jcs-app
+
 # Budget stop, audit, resume and leak checks
 soak:
     ./scripts/soak.sh

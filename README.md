@@ -79,7 +79,9 @@ systemctl --user daemon-reload && systemctl --user enable --now jcsd
 jcs doctor
 ```
 
-El tarball incluye `jcsd`, `jcs`, el RUNBOOK, la unidad systemd y un checksum SHA-256.
+El tarball incluye `jcsd`, `jcs`, `jc-studio`, el RUNBOOK, la unidad systemd, la entrada de
+menú, el icono y un checksum SHA-256. Tras instalarlo, abre **JC Studio** desde el menú de
+aplicaciones.
 
 **Desde el repositorio:**
 
@@ -248,14 +250,25 @@ git -C ~/code/mi-servicio diff main...jcs/<rama>
 
 El cliente principal es una **app de escritorio instalable** (egui), orientada a agentes y
 con terminales embebidas. El daemon sigue siendo un servicio de usuario; la app se conecta
-a él.
+a él por el mismo socket que el CLI.
+
+- Proyectos y objetivos: compositor, DAG, estados, coste y tokens.
+- Detalle por objetivo: tareas, dependencias, ejecuciones, gates y reanudación.
+- Política: packs, reglas, gates, drift y ejecución manual.
+- Memoria: estadísticas, indexación y búsqueda con citas.
+- Ajustes: modelos, revisión, riesgo, timeout, contexto, reparación y concurrencia; por
+  proyecto, auto-merge y presupuestos. Validación y auditoría en el daemon.
+- Terminales reales (PTY) por proyecto o por worktree de tarea, dentro de la ventana.
 
 ```bash
 cargo run -p jcs-app        # ventana de desarrollo
 ```
 
-Estado: esqueleto con el layout (proyectos, objetivos, detalles, terminales). El tablero,
-el stream del agente y el terminal real llegan en los siguientes pasos de la Fase 8.
+Instalada: `jc-studio`. Requiere una sesión gráfica (Wayland o X11) y el daemon vivo; la app
+reintenta la conexión cada dos segundos y no pierde trabajo al cerrarse.
+
+Pendiente de la Fase 8: mover el PTY al daemon para que las terminales sobrevivan al cierre,
+secretos en el llavero, catálogos de modelos/agentes y `.deb`/AppImage.
 
 ## Arquitectura
 
@@ -270,7 +283,9 @@ el stream del agente y el terminal real llegan en los siguientes pasos de la Fas
 | `jcs-policy` | Packs, composición determinista, render, lock y detección de drift. |
 | `jcs-memory` | Índice tree-sitter, búsqueda híbrida y context broker con citas. |
 | `jcs-daemon` | `jcsd`: API sobre UDS, ejecutor de tareas, lifecycle. |
-| `jcs-cli` | `jcs`: TUI/CLI, cliente fino. |
+| `jcs-client` | Cliente del socket: peticiones y stream NDJSON; lo comparten CLI y app. |
+| `jcs-cli` | `jcs`: TUI/CLI, cliente fino de scripting. |
+| `jcs-app` | `jc-studio`: app de escritorio egui, estado de UI, terminales y ajustes. |
 
 Decisiones y su justificación: [`docs/adr/`](docs/adr/README.md).
 Contrato con OpenCode: [`docs/contracts/`](docs/contracts/).

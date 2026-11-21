@@ -12,6 +12,7 @@ pub mod leases;
 pub mod plans;
 pub mod projects;
 pub mod runs;
+pub mod settings;
 pub mod store;
 pub mod tasks;
 
