@@ -57,6 +57,11 @@ colar comillas ni expansión. Un pack que de verdad necesite una tubería debe e
 `["sh", "-c", "..."]`, donde un revisor lo ve. Timeout con muerte del **grupo de procesos**,
 salida acotada por stream y parsers tipados con `findings` que incluyen `archivo:línea`.
 
+**Configuración de linters.** No se genera. Un pack exige que el proyecto tenga su propia
+configuración y la verifica con un gate (`clippy`, `tsc`, `eslint`). Generar además una
+configuración paralela crearía dos fuentes de verdad y drift entre ambas; el gate usa la que
+el proyecto ya mantiene y revisa.
+
 **Bucle de reparación.** Si un gate requerido falla, el executor devuelve al agente la salida
 recortada y accionable, hasta `JCS_MAX_REPAIR_CYCLES` (2 por defecto). El prompt prohíbe
 explícitamente debilitar tests o tocar la configuración de gates. Al agotar el presupuesto, la
