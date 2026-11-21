@@ -16,6 +16,8 @@ jcs-core = { path = "crates/jcs-core", version = "0.1.0" }
 jcs-proto = { path = "crates/jcs-proto", version = "0.1.0" }
 jcs-store = { path = "crates/jcs-store", version = "0.1.0" }
 jcs-agent = { path = "crates/jcs-agent", version = "0.1.0" }
+jcs-gates = { path = "crates/jcs-gates", version = "0.1.0" }
+jcs-policy = { path = "crates/jcs-policy", version = "0.1.0" }
 jcs-git = { path = "crates/jcs-git", version = "0.1.0" }
 
 # ---- async runtime ----
@@ -49,6 +51,8 @@ sqlx = { version = "0.9", default-features = false, features = [
 anyhow = "1"
 thiserror = "2"
 jiff = { version = "1", features = ["serde"] }
+toml = "0.8"
+sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
 clap = { version = "4", features = ["derive", "env"] }
