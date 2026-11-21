@@ -43,6 +43,10 @@ cli *args:
 e2e:
     ./scripts/e2e.sh
 
+# Prove the gate -> repair loop with a gate the objective cannot satisfy by luck
+e2e-policy:
+    ./scripts/e2e-policy.sh
+
 # Kill the daemon mid-run and verify honest recovery
 chaos:
     ./scripts/chaos.sh
