@@ -1,0 +1,54 @@
+set shell := ["bash", "-uc"]
+export PATH := env_var_or_default("HOME", "") + "/.cargo/bin:" + env_var_or_default("PATH", "")
+
+default: check
+
+# Show available recipes
+list:
+    @just --list
+
+# Format the whole workspace
+fmt:
+    cargo fmt --all
+
+# Verify formatting without modifying files
+fmt-check:
+    cargo fmt --all -- --check
+
+# Lint with warnings as errors
+lint:
+    cargo clippy --workspace --all-targets -- -D warnings
+
+# Run the test suite
+test:
+    cargo test --workspace --all-targets
+
+# Full local gate: the same checks CI runs
+check: fmt-check lint test
+    @echo "all gates green"
+
+# Build release binaries
+build:
+    cargo build --release
+
+# Run the daemon in the foreground with debug logs
+daemon:
+    RUST_LOG=debug cargo run --bin jcsd -- --foreground
+
+# Run the CLI against the local daemon
+cli *args:
+    cargo run --bin jcs -- {{args}}
+
+# Opt-in end-to-end test against a real OpenCode service
+e2e:
+    JCS_E2E=1 cargo test --workspace --all-targets -- --nocapture
+
+# Audit dependencies for licenses and advisories
+audit:
+    cargo deny check
+
+# Refresh the vendored OpenAPI contract from the running service
+contract:
+    mkdir -p docs/contracts
+    opencode api GET /openapi.json > docs/contracts/opencode-2.3.2.json
+    @echo "contract refreshed"

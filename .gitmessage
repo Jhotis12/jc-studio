@@ -1,0 +1,6 @@
+
+# <type>(<scope>): <imperative summary, lowercase, no trailing period>
+#
+# Why this change is needed (not what it does; the diff says that).
+#
+# Refs: #123

@@ -1,0 +1,67 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+authors = ["JC Studio Contributors"]
+repository = "https://github.com/jhotis/jc-studio"
+
+[workspace.dependencies]
+# ---- internal ----
+jcs-core = { path = "crates/jcs-core" }
+jcs-proto = { path = "crates/jcs-proto" }
+jcs-store = { path = "crates/jcs-store" }
+jcs-agent = { path = "crates/jcs-agent" }
+jcs-git = { path = "crates/jcs-git" }
+
+# ---- async runtime ----
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+bytes = "1"
+
+# ---- http (loopback, opencode) ----
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+# ---- http (unix socket, daemon <-> cli) ----
+axum = "0.8"
+hyper = { version = "1", features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+
+# ---- data ----
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "sqlite",
+    "migrate",
+    "macros",
+] }
+
+# ---- misc ----
+anyhow = "1"
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
+clap = { version = "4", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+dirs = "5"
+
+# ---- dev ----
+proptest = "1"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+
+[profile.dev]
+# Keep debug info but speed up the inner loop for a large workspace.
+debug = 1

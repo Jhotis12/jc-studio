@@ -1,0 +1,19 @@
+.agents
+.opencode
+openspec
+
+# Rust
+target/
+**/*.rs.bk
+
+# JC Studio runtime state
+.jcs/
+*.db
+*.db-wal
+*.db-shm
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
