@@ -88,9 +88,12 @@ decisiones existen precisamente porque un enfoque obvio falló.
 
 **Fase 5 completada** (gates, fitness functions, secretos, revisor, riesgo). **Fase 6
 operativa** (Telegram). **Fase 7 parcial**: métricas, systemd, doctor, `contrib/install.sh`,
-`docs/RUNBOOK.md` y `scripts/soak.sh`. Lo que queda: una ejecución verde del soak
-(el backend de modelos gratuitos estaba caído: runs con 0 tokens), `cargo dist` y
+`docs/RUNBOOK.md` y `scripts/soak.sh` (**verde**). Lo que queda: `cargo dist` y
 `/metrics` por proyecto.
+
+**Modelos para E2E:** usar `opencode-go/hy4-flash-free` (coste $0, credencial ya activa en
+OpenCode). Los modelos del proveedor `opencode` (gratuitos sin credencial) fallaron con
+0 tokens en esta máquina; no son una base fiable para tests.
 
 El detalle histórico de las fases 5.x se conserva debajo.
 

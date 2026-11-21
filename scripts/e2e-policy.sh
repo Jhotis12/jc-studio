@@ -11,7 +11,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 command -v cargo >/dev/null 2>&1 || export PATH="$HOME/.cargo/bin:$PATH"
 command -v cargo >/dev/null 2>&1 || { echo "FAIL: cargo not found" >&2; exit 1; }
 
-MODEL=${JCS_E2E_MODEL:-opencode/hy4-flash-free}
+MODEL=${JCS_E2E_MODEL:-opencode-go/hy4-flash-free}
 TOKEN=JCS_POLICY_GATE_OK
 WORK=$(mktemp -d)
 DAEMON_PID=""

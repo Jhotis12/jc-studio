@@ -80,10 +80,6 @@ async fn tick(state: &AppState, owner: &str) -> Result<()> {
             continue;
         }
 
-        // A DAG needs a shared integration branch for dependent tasks to see their
-        // predecessors. Single-task goals without auto-merge keep the simple behaviour.
-        merge::ensure_integration_branch(state, &goal, &project, counts.total).await?;
-
         if counts.in_flight() > 0 {
             continue;
         }
@@ -92,6 +88,10 @@ async fn tick(state: &AppState, owner: &str) -> Result<()> {
             block_goal(state, &goal, &reason).await?;
             continue;
         }
+
+        // Create the integration branch only when there is work to dispatch: branching a
+        // blocked goal from a base that later moves leaves it permanently divergent.
+        merge::ensure_integration_branch(state, &goal, &project, counts.total).await?;
 
         dispatch(state, owner, &goal, &project).await?;
     }

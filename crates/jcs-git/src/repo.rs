@@ -254,6 +254,12 @@ impl Repo {
         Ok(())
     }
 
+    /// Moves an existing branch to another commit. Only safe for branches with no work.
+    pub async fn move_branch(&self, branch: &str, to: &str) -> Result<()> {
+        self.must_git(&["branch", "-f", branch, to]).await?;
+        Ok(())
+    }
+
     /// Adds a worktree checking out an existing branch.
     pub async fn add_worktree(&self, path: &Path, branch: &str) -> Result<()> {
         if path.exists() {

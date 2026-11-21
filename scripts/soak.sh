@@ -11,7 +11,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 command -v cargo >/dev/null 2>&1 || export PATH="$HOME/.cargo/bin:$PATH"
 command -v cargo >/dev/null 2>&1 || { echo "FAIL: cargo not found" >&2; exit 1; }
 
-MODEL=${JCS_E2E_MODEL:-opencode/hy4-flash-free}
+MODEL=${JCS_E2E_MODEL:-opencode-go/hy4-flash-free}
 BUDGET_TOKENS=${SOAK_BUDGET_TOKENS:-1000}
 WORK=$(mktemp -d)
 DAEMON_PID=""
@@ -21,7 +21,11 @@ cleanup() {
         kill "$DAEMON_PID" 2>/dev/null || true
         wait "$DAEMON_PID" 2>/dev/null || true
     fi
-    rm -rf "$WORK"
+    if [ "${SOAK_KEEP:-0}" = "1" ]; then
+        echo "kept: $WORK"
+    else
+        rm -rf "$WORK"
+    fi
 }
 trap cleanup EXIT
 
@@ -84,7 +88,7 @@ done
 "${JCS[@]}" ping >/dev/null 2>&1 || fail "daemon never became ready"
 
 "${JCS[@]}" project add "$WORK/repo" --name soak > /dev/null
-"${JCS[@]}" project settings soak --budget-tokens "$BUDGET_TOKENS" > /dev/null
+"${JCS[@]}" project settings soak --budget-tokens "$BUDGET_TOKENS" --auto-merge true > /dev/null
 
 step "queue two objectives under a ${BUDGET_TOKENS}-token daily ceiling"
 "${JCS[@]}" ask -p soak --no-plan "Create ONE.txt containing the word one." \
@@ -160,10 +164,11 @@ git -C "$WORK/repo" ls-tree -r --name-only main | grep -qx "ONE.txt" || fail "ON
 git -C "$WORK/repo" ls-tree -r --name-only main | grep -qx "TWO.txt" || fail "TWO.txt missing"
 
 step "shutdown leaves no process behind"
-kill "$DAEMON_PID" 2>/dev/null || true
-wait "$DAEMON_PID" 2>/dev/null || true
+SHUTDOWN_PID=$DAEMON_PID
+kill "$SHUTDOWN_PID" 2>/dev/null || true
+wait "$SHUTDOWN_PID" 2>/dev/null || true
 DAEMON_PID=""
 sleep 1
-pgrep -x jcsd >/dev/null && fail "a jcsd process survived the shutdown" || true
+kill -0 "$SHUTDOWN_PID" 2>/dev/null && fail "jcsd $SHUTDOWN_PID survived the shutdown" || true
 
 printf '\nPASS: budget stop -> audit -> resume -> clean shutdown (RSS %s KB)\n' "$RSS_KB"

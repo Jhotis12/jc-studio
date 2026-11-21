@@ -34,14 +34,39 @@ pub async fn ensure_integration_branch(
         return Ok(None);
     }
 
-    if let Some(branch) = state.store.goal_integration_branch(&goal.id).await? {
-        return Ok(Some(branch));
-    }
-
-    let branch = format!("jcs/goal/{}", suffix(goal.id.as_str()));
+    // The stored branch is reused, but never trusted blindly: the base may have moved
+    // while the goal was blocked.
+    let branch = match state.store.goal_integration_branch(&goal.id).await? {
+        Some(branch) => branch,
+        None => {
+            let branch = format!("jcs/goal/{}", suffix(goal.id.as_str()));
+            state
+                .store
+                .set_goal_integration_branch(&goal.id, &branch)
+                .await?;
+            branch
+        }
+    };
     let repo = Repo::new(&project.root_path);
 
-    if !repo.branch_exists(&branch).await? {
+    if repo.branch_exists(&branch).await? {
+        // A blocked goal's branch may predate another goal's promotion. If it has no work
+        // of its own it is just a stale pointer: move it to the current base instead of
+        // letting it diverge and fail promotion later.
+        if repo
+            .is_ancestor(&branch, &project.base_branch)
+            .await
+            .unwrap_or(false)
+        {
+            let path = integration_worktree_path(state, project, &branch);
+            if path.exists() {
+                let _ = repo.remove_worktree(&path, true).await;
+            }
+            repo.move_branch(&branch, &project.base_branch)
+                .await
+                .with_context(|| format!("cannot move {branch} to {}", project.base_branch))?;
+        }
+    } else {
         repo.create_branch(&branch, &project.base_branch)
             .await
             .with_context(|| {
@@ -51,11 +76,6 @@ pub async fn ensure_integration_branch(
                 )
             })?;
     }
-
-    state
-        .store
-        .set_goal_integration_branch(&goal.id, &branch)
-        .await?;
 
     let event = NewEvent::new(EventKind::MergeFinished)
         .project(&project.id)

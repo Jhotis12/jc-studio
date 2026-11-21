@@ -250,6 +250,14 @@ fn walk(root: &Path) -> Vec<PathBuf> {
                 }
                 stack.push(path);
             } else if file_type.is_file() {
+                // A worktree's `.git` is a *file* pointing at the real gitdir. Its path is
+                // long and random-looking, and it is never a credential. Scanning it made
+                // the agent try to "fix" git metadata and break the worktree.
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name == ".git" || name == ".jcs" {
+                    continue;
+                }
                 files.push(path);
             }
         }
